@@ -156,11 +156,13 @@ export function paintCube(g, state, o = {}) {
     }
     // then the outlines, over everything, round each piece's visible body faces
     ctx.lineJoin = "round";
-    for (const { id, color, width } of outlines(pal, lk)) {
+    for (const { id, color, width, dash } of outlines(pal, lk)) {
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
+      ctx.setLineDash(dash || []);
       for (const pts of bodies.get(id) || []) { path(ctx, pts); ctx.stroke(); }
     }
+    ctx.setLineDash([]);
   }
   if (o.guide) drawGuides(ctx, pal, turnGuides(state, o.guide.move, o.guide.t, camera), at, o.guide.faint);
   ctx.restore();

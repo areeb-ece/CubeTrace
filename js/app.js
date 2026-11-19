@@ -15,6 +15,7 @@ import { ROLE_NAMES } from "./views/stickers.js";
 import { createPlayer } from "./player.js";
 import { mountTransport, isSpeed } from "./transport.js";
 import { mountKeys } from "./keys.js";
+import { mountTimeline } from "./views/timeline.js";
 import { mountPrimer } from "./primer.js";
 import { TYPING_DEBOUNCE } from "./timing.js";
 
@@ -36,7 +37,8 @@ const opts = restoreOptions();
 const start = HOLDINGS[ROLE_SETS[opts.roleSet].holding];
 const store = createStore({
   moves: "", start, trace: trace(start, []), state: start, shown: { state: start, turn: null }, guide: null, busy: false,
-  hover: null, track: null, // a piece (cubie id) brushed by the pointer or keys, and one being followed
+  hover: null, track: null, meet: null, // meet: pieces both halves of a commutator move (or null)
+  // a piece (cubie id) brushed by the pointer or keys, and one being followed
   play: { index: 0, t: 0, playing: false, speed: opts.speed }, seq: { n: 0, chunks: [] },
   error: null, camera: { ...DEFAULT_CAMERA }, opts,
 });
@@ -158,11 +160,13 @@ for (const d of document.querySelectorAll("dialog.sd-dialog")) {
   d.addEventListener("click", (e) => { if (e.target === d) d.close(); });
 }
 transport.update(state);
+const timeline = mountTimeline(document.getElementById("timeline"), store, player);
 
 // ── every change, once per frame ──
 store.on((s, dirty) => {
   if (dirty.has("opts")) saveOptions();
   transport.update(s);
+  timeline.update(s, dirty);
   if (dirty.has("error")) drawError(s.error);
   for (const id in made) if (dock.isShown(id)) made[id].view.update?.(s, dirty);
 });

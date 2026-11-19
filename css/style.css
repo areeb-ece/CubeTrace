@@ -91,6 +91,28 @@ code, pre { font-family: var(--font-mono); }
 .side .sd-callout .acts { display: flex; gap: var(--sp-2); }
 .side .where { margin: var(--sp-2) 0 0; overflow-x: auto; font-size: var(--fs-1); color: var(--ink-2); white-space: pre; }
 
+/* ── the timeline under the moves box (local): chips, inverse-pair brackets, chunk bands ──
+   A band's shape says what its colour does: setup and undo are a bracket cupped under their
+   moves (same colour, so a conjugate reads as a sandwich), a trigger is dashed, an insert dotted. */
+.tl { display: grid; gap: var(--sp-2); }
+.tl-wrap { position: relative; }
+.tl-arcs { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.tl-arc { stroke: var(--ink-3); }
+.tl-row { display: flex; flex-wrap: wrap; gap: 0 var(--sp-2); }
+.tl-chunk { display: grid; justify-items: start; align-content: start; margin-top: var(--tl-arc, 0); max-width: 100%; }
+.tl-chips { display: flex; flex-wrap: wrap; gap: 2px; }
+.tl-chip { height: var(--ctl-h-sm); min-width: 2.2ch; padding: 0 var(--sp-1); border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--card); color: var(--ink); font: var(--fw-ui) var(--fs-1)/1 var(--font-mono); cursor: pointer; }
+@media (hover: hover) { .tl-chip:hover { background: var(--card-hover); } }
+.tl-chip[aria-current="step"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: var(--fw-head); }
+.tl-band { justify-self: stretch; margin-top: var(--sp-1); height: 0; border: 0 solid var(--ink-3); }
+.tl-band[data-role="setup"], .tl-band[data-role="undo"] { height: var(--sp-1); border-width: 0 2px 2px; border-color: var(--c0); }
+.tl-band[data-role="trigger"] { border-top-width: 3px; border-top-style: dashed; border-color: var(--c2); }
+.tl-band[data-role="insert"] { border-top-width: 3px; border-top-style: dotted; border-color: var(--c5); }
+.tl-label { font: var(--fs-1)/1.3 var(--font-text); color: var(--ink-2); }
+.tl-caption { color: var(--ink-2); }
+.tl-comm { display: grid; justify-items: start; gap: var(--sp-2); }
+.tl-note { font: var(--fw-strong) var(--fs-2) var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+
 .stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; isolation: isolate; }
 .dock { position: absolute; inset: 0; padding: 0 var(--gap) var(--gap); display: flex; }
 .dock > * { flex: 1 1 0; }

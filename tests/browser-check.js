@@ -18,7 +18,8 @@ import { createRequire } from "node:module";
 import { serve, ROOT, BASE_PATH } from "./serve.js";
 import { netLayout, netCell } from "../js/lib/layout2d.js";
 import { STICKERS } from "../js/palette.js";
-import { solved, stickers, kindOf } from "../js/lib/cube.js";
+import { solved, stickers, kindOf, applyMoves } from "../js/lib/cube.js";
+import { parseMoves } from "../js/lib/notation.js";
 import { facesAt } from "../js/lib/pieces.js";
 
 // Playwright from this folder's node_modules, or a machine-wide install.
@@ -464,6 +465,61 @@ try {
     await page.reload();
     await page.waitForSelector(".dk-stack");
     assert.equal(await page.$eval("#roleSet", (s) => s.value), "oll");
+    await page.context().close();
+  }
+
+  // ── the timeline and the commutator view ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 });
+    assert.ok(await page.isHidden("#timeline"), "no timeline for no moves");
+    await typeMoves(page, "F R U R' U' F'");
+    assert.equal(await page.$$eval("#timeline .tl-chip", (c) => c.length), 6);
+    assert.equal(await page.$$eval("#timeline path.tl-arc", (c) => c.length), 3, "three bracket arcs");
+    for (const role of ["setup", "trigger", "undo"]) assert.equal(await page.$$eval(`#timeline .tl-band[data-role="${role}"]`, (c) => c.length), 1, role + " band");
+    assert.ok(await page.isHidden("#timeline .tl-comm"), "a conjugate has no commutator note");
+    assert.match(await page.textContent("#timeline .tl-caption"), /^Undo the setup/, "at the end: the last chunk's caption");
+    assert.equal(await page.$eval("#timeline [aria-current]", (c) => c.textContent), "F'");
+    const chip = (i) => page.locator(`#timeline .tl-chip[data-i="${i}"]`);
+    await chip(3).click();
+    await settle(page);
+    assert.equal(await page.$eval("#timeline [aria-current]", (c) => c.dataset.i), "3");
+    assert.match(await page.textContent("#timeline .tl-caption"), /^Sexy move: /);
+    assert.equal(await page.$$eval("#timeline .tl-chip[tabindex='0']", (c) => c.length), 1, "one tab stop");
+    // the net is the state after three moves
+    // (not the R face: the faint guide of the next move, R', lies over it)
+    for (const st of stickers(applyMoves(solved(), parseMoves("F R U"))).filter((x) => x.face !== "R")) await assertSticker(page, st.face, st.row, st.col, st.home, "after the 4th chip");
+    await typeMoves(page, "F R U R' U' F'");
+    await chip(2).focus();
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.i), "3", "arrows move between chips");
+    await page.keyboard.press("Enter");
+    await settle(page);
+    assert.equal(await page.$eval("#timeline [aria-current]", (c) => c.dataset.i), "3");
+    await shot(page, "timeline-conjugate");
+
+    await typeMoves(page, "R U R' U'");
+    assert.ok(await page.isVisible("#timeline .tl-comm"));
+    assert.equal(await page.textContent("#timeline .tl-note"), "[R U, R' U']".replace("R U, R' U'", "R, U"));
+    const off = await picture(page, NET), offCube = await picture(page, CUBE);
+    await page.click("#timeline .tl-comm button");
+    await frame(page);
+    assert.equal(await page.getAttribute("#timeline .tl-comm button", "aria-pressed"), "true");
+    assert.notEqual(await picture(page, NET), off, "the meeting pieces are outlined on the net");
+    assert.notEqual(await picture(page, CUBE), offCube, "and on the cube");
+    await page.click("#timeline .tl-comm button");
+    await frame(page);
+    assert.equal(await picture(page, NET), off, "off again");
+    for (const t of ["R' D' R D", "R U R' D R U' R' D'"]) {
+      await typeMoves(page, t);
+      assert.ok(await page.isVisible("#timeline .tl-comm"), t);
+    }
+    await page.click("#timeline .tl-comm button");
+    await frame(page);
+    await shot(page, "timeline-commutator");
+    await typeMoves(page, "R U R' U R U2 R'");
+    assert.ok(await page.isHidden("#timeline .tl-comm"), "Sune is not a commutator");
+    assert.equal(await page.$$eval("#timeline .tl-band[data-role='trigger']", (c) => c.length), 1);
+    await clean("timeline");
     await page.context().close();
   }
 

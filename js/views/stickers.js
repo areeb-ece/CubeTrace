@@ -40,6 +40,14 @@ function rolesFor(name) {
   return memo.get(name);
 }
 
+// the pieces both halves of a commutator move: a Set made once per list
+let meetFor = null, meetSetOf = null;
+const meetSet = (ids) => {
+  if (!ids) return null;
+  if (ids !== meetFor) { meetFor = ids; meetSetOf = new Set(ids); }
+  return meetSetOf;
+};
+
 /**
  * What the views need to know about the pieces, for the cube `now` (the one being drawn):
  * { roleOf, up, full, marks, away (displaced kept ids), holes, start, hover, track }.
@@ -48,7 +56,7 @@ function rolesFor(name) {
 export function look(s, now) {
   const { roleOf, up, marks } = rolesFor(s.opts.roleSet);
   const { displaced: away, holes } = displaced(roleOf, s.start, now);
-  return { roleOf, up, marks, full: !!s.opts.full, away, holes, start: s.start, hover: s.hover, track: s.track };
+  return { roleOf, up, marks, meet: meetSet(s.meet), full: !!s.opts.full, away, holes, start: s.start, hover: s.hover, track: s.track };
 }
 
 /** The fill of a sticker of piece id whose colour is home's, and whether it is drawn as ignored (grey). */
@@ -64,10 +72,14 @@ export function stickerFill(pal, lk, id, home) {
 export const letterInk = (st) => (st.grey ? null : inkOn(st.fill));
 export { LETTERS };
 
-/** The outlines to draw round pieces, in painting order: [{ id, color, width }]. */
+/**
+ * The outlines to draw round pieces, in painting order: [{ id, color, width, dash? }].
+ * Focus is solid; where a commutator's halves meet it is dashed (on a halo of the ground).
+ */
 export function outlines(pal, lk) {
   const out = [];
   if (lk.marks) lk.roleOf.forEach((r, id) => { if (r === "focus") out.push({ id, color: pal.accent, width: 2.5 }); });
+  if (lk.meet) for (const id of lk.meet) out.push({ id, color: pal.alpha("bg", 0.8), width: 6 }, { id, color: pal.accent, width: 3, dash: [5, 4] });
   if (lk.hover != null) out.push({ id: lk.hover, color: pal.ink, width: 3 });
   if (lk.track != null) out.push({ id: lk.track, color: pal.trail, width: 3.5 });
   return out;
@@ -111,10 +123,11 @@ export function paintStickers(g, state, lk, rect, stickerList, o = {}) {
       if (r) dashed(ctx, pal, () => round(ctx, r.x - 2, r.y - 2, r.w + 4, r.h + 4, Math.min(r.w, r.h) * 0.2));
     }
   }
-  for (const { id, color, width } of outlines(pal, lk)) {
+  for (const { id, color, width, dash } of outlines(pal, lk)) {
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
     ctx.lineJoin = "round";
+    ctx.setLineDash(dash || []);
     for (const r of byId.get(id) || []) { round(ctx, r.x - 1, r.y - 1, r.w + 2, r.h + 2, Math.min(r.w, r.h) * 0.18); ctx.stroke(); }
   }
   ctx.restore();
