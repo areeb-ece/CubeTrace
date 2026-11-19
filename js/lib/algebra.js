@@ -1,7 +1,7 @@
 // Operations on move sequences: inverse, the two mirrors, U adjustments and comparing
 // states up to them.
 import { inverseMove, reflectMove, MIRROR_LR, MIRROR_FR, move } from "./moves.js";
-import { solved, applyMoves, equal, turn, clone } from "./cube.js";
+import { solved, applyMoves, equal, turn, clone, reorient } from "./cube.js";
 import { describe } from "./pieces.js";
 
 export const inverse = (moves) => moves.slice().reverse().map(inverseMove);
@@ -14,7 +14,7 @@ export const U = [move("U", 1)];
 export const Uk = (k) => { k = ((k % 4) + 4) % 4; return k ? [move("U", k === 2 ? 2 : k === 1 ? 1 : -1)] : []; };
 
 /** Do two sequences have the same effect on a solved cube? */
-export const sameEffect = (a, b) => equal(applyMoves(solved(), a), applyMoves(solved(), b));
+export const sameEffect = (a, b) => equal(reorient(applyMoves(solved(), a)), reorient(applyMoves(solved(), b)));
 export const isIdentity = (moves) => equal(applyMoves(solved(), moves), solved());
 
 /** The case an algorithm solves: a solved cube with the algorithm undone. */
@@ -22,7 +22,7 @@ export const caseOf = (alg, start = solved()) => applyMoves(start, inverse(alg))
 
 /** A string that is the same for two states exactly when they are equal. */
 export function key(s) {
-  const d = describe(s);
+  const d = describe(reorient(s));
   return `${d.cp}|${d.co}|${d.ep}|${d.eo}`;
 }
 

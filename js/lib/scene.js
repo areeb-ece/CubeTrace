@@ -122,13 +122,17 @@ function faceAxes(n) {
 // The faces the camera can't see, reflected in a mirror placed beyond each of them, so
 // they show beside the cube. Painted before the cube (they are further away).
 const MIRROR_GAP = 3.3;
+// The back pane would sit straight behind the cube from the usual camera, so it slides
+// out to the right, past the cube's edge (the side and bottom panes are clear already).
+const MIRROR_SHIFT = { B: [3.1, 0.4, 0] };
 function mirrorPolys(s, cam) {
   const out = [];
   for (const face of "UDLRFB") {
     const n = NORMALS[face];
     if (dot(n, cam.eye) > 0) continue; // visible already
     const k = n.findIndex((v) => v !== 0), side = n[k];
-    const reflect = (p) => { const q = p.slice(); q[k] = 2 * side * MIRROR_GAP - q[k]; return q; };
+    const shift = MIRROR_SHIFT[face] || [0, 0, 0];
+    const reflect = (p) => { const q = p.slice(); q[k] = 2 * side * MIRROR_GAP - q[k]; return add(q, shift); };
     const [u, v] = faceAxes(n);
     for (const id of IDS) {
       const c = POS[s.pos[id]];

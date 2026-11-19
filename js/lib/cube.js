@@ -101,3 +101,18 @@ export function isSolved(s) {
   return stickers(s).every((st) => st.home === centreHome(s, at, st.face));
 }
 const centreHome = (s, at, face) => stickerHome(s, at[posIndex(NORMALS[face])], face);
+
+/**
+ * The same state with the whole cube turned so every centre is home again. Algorithms
+ * with rotations or slices (x, d, M) leave the cube turned; comparing states needs this.
+ */
+export function reorient(s) {
+  for (let r = 0; r < 24; r++) {
+    if (!CENTRE_IDS.every((id) => PERM[r][s.pos[id]] === id)) continue;
+    const t = clone(s);
+    for (const id of IDS) { t.pos[id] = PERM[r][s.pos[id]]; t.ori[id] = MUL[r][s.ori[id]]; }
+    return t;
+  }
+  return clone(s);
+}
+const CENTRE_IDS = IDS.filter((id) => kindOf(id) === "centre");

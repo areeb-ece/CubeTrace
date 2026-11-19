@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- Everything runs in this tab. connect-src 'none' means the page can't send anything
+     over the network, even by mistake. There is no style-src-attr at all: the cube is
+     drawn on canvases, and sizes and positions are set through the CSSOM, never in markup. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; manifest-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Cube Trace</title>
+<meta name="description" content="Rubik's cube algorithms turn by turn: type moves and see the cube and its net. Runs entirely in your browser.">
+<meta name="author" content="areeb">
+<link rel="canonical" href="https://areeb-ece.github.io/CubeTrace/">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+<!-- Shared with areeb-ece.github.io and the other tools (areeb-ece.github.io/design/): the
+     master palette, its scales and components, the settings panel and the night sky, and
+     the visitor's saved settings (one localStorage entry for every site). fonts.css is the
+     portfolio's text face, Libre Franklin; mononoki (the moves, the letters) is this site's
+     own. When /design/ doesn't load, js/theme.js links the copy in assets/design/ instead. -->
+<link rel="stylesheet" href="/design/tokens.css">
+<link rel="stylesheet" href="/design/ui.css">
+<link rel="stylesheet" href="/design/fonts.css">
+<script src="/design/theme.js"></script>
+<script src="js/theme.js"></script>
+</head>
+<body>
+<button class="skip sd-btn sd-primary" id="skip" type="button">Skip to the cube</button>
+<div class="app" id="app">
+  <header class="bar sd-bar">
+    <div class="brand">
+      <h1 class="sd-wordmark">CUBE<span>/</span>TRACE</h1>
+      <a class="by" href="https://areeb-ece.github.io/" rel="noopener noreferrer">by areeb</a>
+    </div>
+    <span class="sd-grow"></span>
+    <button class="sd-btn sd-small" type="button" id="btnView" popovertarget="viewPop" aria-haspopup="dialog" aria-expanded="false" aria-controls="viewPop">View</button>
+    <span class="design-slot" data-design-settings></span>
+    <button class="sd-btn sd-small theme" id="btnTheme" type="button" title="Switch between the dark and light sheet" hidden>Light</button>
+  </header>
+
+  <div class="work">
+    <aside class="side" aria-labelledby="movesTitle">
+      <h2 id="movesTitle">Moves</h2>
+      <div class="sd-field">
+        <textarea class="sd-textarea sd-mono" id="moves" rows="6" aria-labelledby="movesTitle" aria-describedby="movesHint movesError" placeholder="R U R' U'" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"></textarea>
+        <p class="sd-hint" id="movesHint">Faces U D L R F B. ' turns back, 2 turns twice, (…)3 repeats.</p>
+      </div>
+      <div class="sd-callout sd-danger" id="movesError" role="alert" hidden>
+        <p id="errorText"></p>
+        <pre class="where" id="errorWhere" aria-hidden="true"></pre>
+      </div>
+    </aside>
+
+    <main class="stage" id="stage" data-sky>
+      <div class="dock" id="dock" tabindex="-1"></div>
+    </main>
+  </div>
+</div>
+
+<!-- The tool's own options (PLAN.md D8). A popover, so Escape and a click elsewhere close it. -->
+<div class="pop" id="viewPop" popover="auto" role="dialog" aria-label="View">
+  <label class="sd-check"><input type="checkbox" id="optLetters"> Letters on stickers</label>
+  <label class="sd-check"><input type="checkbox" id="optMirrors"> Mirror panes</label>
+  <label class="sd-check"><input type="checkbox" id="optSpring"> Spring back after turning the cube</label>
+  <button class="sd-btn sd-small" type="button" id="btnReset">Reset layout</button>
+</div>
+<noscript><p class="sd-callout sd-warn noscript">This is an interactive tool that runs in your browser, so it needs JavaScript.</p></noscript>
+<script src="/design/ui.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
