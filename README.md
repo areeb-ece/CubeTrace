@@ -1,1 +1,1 @@
-# RubiksVisualizer
+
