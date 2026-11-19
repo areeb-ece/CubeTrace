@@ -5,6 +5,8 @@
 // they are identities, not theme hues, so they are the same in every theme and never
 // reach CSS. tests/themes.test.js checks them against the body and each other. Nothing
 // here touches the document until palette() is called, so Node can import the constants.
+import { luminance, mix, desaturate, toHex } from "./lib/colour.js";
+
 const ROLES = {
   setup: "--c0",      // the pieces an algorithm sets up (and puts back)
   trigger: "--c2",    // the repeated core of an algorithm
@@ -22,12 +24,17 @@ export const STICKERS = { U: "#F2F2EE", D: "#FFD60A", F: "#18A957", B: "#2A62D6"
 /** The letter written on a sticker when letters are on. */
 export const LETTERS = { U: "W", D: "Y", F: "G", B: "B", R: "R", L: "O" };
 
-const lumOf = (hex) => [1, 3, 5].reduce((n, i, k) => {
-  const c = parseInt(hex.slice(i, i + 2), 16) / 255;
-  return n + (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][k];
-}, 0);
 /** Black on a light sticker, white on a dark one. */
-export const inkOn = (hex) => (lumOf(hex) > 0.18 ? "#000000" : "#FFFFFF");
+export const inkOn = (hex) => (luminance(hex) > 0.18 ? "#000000" : "#FFFFFF");
+
+/**
+ * A kept piece's sticker: its colour half drained (toward the grey of the same
+ * brightness, so it keeps its contrast with the plastic) and 8% toward the sheet, so it
+ * sits back in every theme. tests/themes.test.js checks it in all of them.
+ */
+export const keptColour = (hex, sheet) => mix(desaturate(hex, 0.5), sheet, 0.08);
+// An ignored sticker is the theme's own --ink-4, flat (pal.ink4): it is the one grey
+// that is far enough from white and from the body in all 15 themes.
 
 const caches = new Map();
 let probeEl = null;
@@ -60,6 +67,10 @@ export function palette(theme = "current") {
   const p = { rgb, theme, light: /light/.test(scheme) && !/dark/.test(scheme) };
   for (const role of Object.keys(ROLES)) p[role] = css(rgb[role]);
   p.alpha = (role, a) => css(rgb[role], a);
+  // sticker colours for kept pieces on this sheet, and the flat grey of ignored ones
+  const sheet = toHex(rgb.sheet);
+  p.kept = Object.fromEntries(Object.entries(STICKERS).map(([face, hex]) => [face, keptColour(hex, sheet)]));
+  p.ignored = p.ink4;
   p.mono = root.getPropertyValue("--font-mono").trim() || "monospace";
   p.text = root.getPropertyValue("--font-text").trim() || "sans-serif";
   caches.set(theme, p);

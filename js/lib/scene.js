@@ -242,3 +242,33 @@ export function turnGuides(state, m, t = 0, camera = DEFAULT_CAMERA) {
   if (m.q === 2) heads.push(head((phi0 + phiEnd) / 2));
   return { slab, axis, arc: arc3.map(flat), arc3, heads, double: m.q === 2, side };
 }
+
+/**
+ * The 12 edges of the cubie-sized box at grid position `pos` (an index, as in rot.js),
+ * projected like buildScene's polygons: [{ a: [x, y], b: [x, y], visible }]. visible is
+ * true for an edge on an outer face of the cube that faces the camera: the others lie
+ * inside the cube, behind other pieces, and are not worth drawing. A ghost is the
+ * dashed outline of where a piece was.
+ */
+export function ghostEdges(pos, camera = DEFAULT_CAMERA) {
+  const cam = cameraBasis(camera), c = POS[pos], out = [];
+  // the face of the box with normal ±axis k: on the cube's skin, and turned toward the eye
+  const shows = (k, sgn) => {
+    if (c[k] * sgn !== 1) return false;
+    const n = [0, 0, 0];
+    n[k] = sgn;
+    return dot(n, sub(cam.eye, add(c, scale(n, HALF)))) > 0;
+  };
+  for (let k = 0; k < 3; k++) {
+    const a = (k + 1) % 3, b = (k + 2) % 3;
+    for (const sa of [-1, 1]) for (const sb of [-1, 1]) {
+      const end = (t) => {
+        const q = c.slice();
+        q[k] += t * HALF; q[a] += sa * HALF; q[b] += sb * HALF;
+        return projectPoint(cam, q).slice(0, 2);
+      };
+      out.push({ a: end(-1), b: end(1), visible: shows(a, sa) || shows(b, sb) });
+    }
+  }
+  return out;
+}

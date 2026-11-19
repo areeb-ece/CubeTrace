@@ -113,3 +113,34 @@ test("the slab outline covers exactly the turning layers, and the axis passes th
   const mid = turnGuides(solved(), parseMoves("U")[0], 0.5, DEFAULT_CAMERA).slab.flat().join();
   assert.notEqual(mid, turnGuides(solved(), parseMoves("U")[0], 0, DEFAULT_CAMERA).slab.flat().join());
 });
+
+import { ghostEdges, cameraBasis, projectPoint } from "../js/lib/scene.js";
+import { posIndex } from "../js/lib/rot.js";
+
+test("a ghost is a box: 12 edges, the outer front ones visible", () => {
+  for (const p of [[1, 1, 1], [0, 1, 1], [1, 0, 1], [-1, -1, -1], [0, 0, 1]]) {
+    const edges = ghostEdges(posIndex(p), DEFAULT_CAMERA);
+    assert.equal(edges.length, 12);
+    for (const e of edges) assert.ok([...e.a, ...e.b].every(Number.isFinite));
+  }
+  // the front-up-right corner shows its three outer faces: 9 edges (the three at the far corner are hidden)
+  assert.equal(ghostEdges(posIndex([1, 1, 1])).filter((e) => e.visible).length, 9);
+  // the front-up edge shows 2 faces of 4: 7 edges
+  assert.equal(ghostEdges(posIndex([0, 1, 1])).filter((e) => e.visible).length, 7);
+  // the back-down-left corner faces away from the default camera on all three outer faces
+  assert.equal(ghostEdges(posIndex([-1, -1, -1])).filter((e) => e.visible).length, 0);
+});
+
+test("ghost edges join the projected corners of the cubie's box", () => {
+  const cam = cameraBasis(DEFAULT_CAMERA), c = [1, 1, 1];
+  const corner = (dx, dy, dz) => projectPoint(cam, [c[0] + dx * 0.5, c[1] + dy * 0.5, c[2] + dz * 0.5]).slice(0, 2);
+  const edges = ghostEdges(posIndex(c));
+  const has = (p, q) => edges.some((e) => (same(e.a, p) && same(e.b, q)) || (same(e.a, q) && same(e.b, p)));
+  const same = (u, v) => Math.hypot(u[0] - v[0], u[1] - v[1]) < 1e-9;
+  assert.ok(has(corner(1, 1, 1), corner(-1, 1, 1)));
+  assert.ok(has(corner(1, -1, 1), corner(1, 1, 1)));
+  assert.ok(has(corner(1, 1, -1), corner(1, 1, 1)));
+  // moves with the camera
+  const turned = ghostEdges(posIndex(c), { ...DEFAULT_CAMERA, yaw: DEFAULT_CAMERA.yaw + 1 });
+  assert.notDeepEqual(turned[0].a, edges[0].a);
+});

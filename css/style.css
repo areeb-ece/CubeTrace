@@ -160,6 +160,9 @@ code, pre { font-family: var(--font-mono); }
 .view canvas { display: block; }
 .plot { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .plot > canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.plot > canvas:focus-visible { outline-offset: calc(-1 * var(--ring-w)); }
+/* The last-layer panel's own control row (local). */
+.ll-bar { flex: none; display: flex; padding: var(--sp-2) var(--sp-2) 0; }
 
 /* ── narrow screens: the workspace first, then the moves, one column ── */
 .dock[data-mode="stacked"] { position: static; display: grid; gap: var(--gap); align-content: start; padding: 0 var(--gap) var(--sp-6); }

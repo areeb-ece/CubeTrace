@@ -3,43 +3,14 @@
 import { stickers } from "../lib/cube.js";
 import { rimMap, cycles } from "../lib/anatomy.js";
 import { moveText } from "../lib/moves.js";
-import { netLayout, netCell } from "../lib/layout2d.js";
-import { BODY, STICKERS, LETTERS, inkOn } from "../palette.js";
+import { netLayout, netCell, netCells, cellAt, stepCell } from "../lib/layout2d.js";
+import { BODY } from "../palette.js";
 import { mountCanvas } from "./canvas.js";
+import { arrow } from "./draw.js";
+import { look, paintStickers } from "./stickers.js";
+import { trail, idAt } from "../lib/cells.js";
 
 const round = (ctx, x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
-
-// An arrow from a to b, bowed by `bend` (a fraction of its length), haloed so it reads on
-// any sticker. both: a head at each end (a swap). dash: a dashed shaft (the shape cue
-// that tells the edges' arrows from the corners').
-function arrow(ctx, pal, a, b, { bend = 0, dash = false, both = false, width = 2.5, head = 7, alpha = 1, color = pal.ink } = {}) {
-  const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
-  const c = [(a[0] + b[0]) / 2 - (dy / len) * bend * len, (a[1] + b[1]) / 2 + (dx / len) * bend * len];
-  // tangents at the ends, so the heads follow the bow
-  const t1 = norm([c[0] - a[0], c[1] - a[1]]), t2 = norm([b[0] - c[0], b[1] - c[1]]);
-  const tip = [b[0], b[1]], tail = [a[0], a[1]];
-  const base = (p, t, s) => [p[0] - t[0] * head * s, p[1] - t[1] * head * s];
-  const b2 = base(tip, t2, 1), a2 = both ? [a[0] + t1[0] * head, a[1] + t1[1] * head] : a;
-  const tri = (p, t) => [[p[0], p[1]], [p[0] - t[0] * head - t[1] * head * 0.55, p[1] - t[1] * head + t[0] * head * 0.55], [p[0] - t[0] * head + t[1] * head * 0.55, p[1] - t[1] * head - t[0] * head * 0.55]];
-  ctx.save();
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  for (const [col, w] of [[pal.alpha("bg", 0.8 * alpha), width + 3.5], [color, width]]) {
-    ctx.beginPath();
-    ctx.moveTo(a2[0], a2[1]);
-    ctx.quadraticCurveTo(c[0], c[1], b2[0], b2[1]);
-    ctx.setLineDash(dash ? [width * 2.2, width * 1.8] : []);
-    ctx.strokeStyle = col;
-    ctx.lineWidth = w;
-    ctx.stroke();
-    ctx.setLineDash([]);
-    const heads = [tri(tip, t2)];
-    if (both) heads.push(tri(tail, [-t1[0], -t1[1]]));
-    for (const h of heads) { ctx.beginPath(); h.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fillStyle = col; ctx.fill(); ctx.stroke(); }
-  }
-  ctx.restore();
-}
-const norm = ([x, y]) => { const l = Math.hypot(x, y) || 1; return [x / l, y / l]; };
 
 // What the move does on the net: each rim triplet's arrow to where it goes, and the
 // turning face's corner and edge cycles (corners solid, edges dashed).
@@ -69,7 +40,24 @@ function drawAnatomy(ctx, pal, l, m, faint) {
   }
 }
 
-/** g = { ctx, w, h, pal }, o = { letters, guide }: guide { move, faint } draws the move's rim and cycle arrows. */
+// Where a tracked piece has been: a dotted path through the cells of its reference
+// sticker, one hop per place it sat in, ending in an arrowhead where it is now. What it
+// has yet to do is fainter. path is trail()'s list, cur the index of the state shown.
+function drawTrail(ctx, pal, l, path, cur) {
+  const mid = (c) => { const r = netCell(l, c.face, c.row, c.col); return [r.x + r.size / 2, r.y + r.size / 2]; };
+  const at = path.reduce((k, c, j) => (c.i <= cur ? j : k), 0);
+  for (let j = 0; j + 1 < path.length; j++) {
+    const done = j + 1 <= at;
+    arrow(ctx, pal, mid(path[j]), mid(path[j + 1]), { bend: 0.15, dots: true, width: 2.5, head: Math.max(5, l.cell * 0.22), alpha: done ? 1 : 0.4, color: pal.trail, noHead: j + 1 !== at });
+  }
+}
+
+/**
+ * g = { ctx, w, h, pal }, o = { look, letters, guide, trail, cursor }.
+ * look: stickers.js's look() of this state. guide { move, faint } draws the move's rim and
+ * cycle arrows. trail { path, cur } draws a tracked piece's path. cursor { face, row, col }
+ * rings the sticker the keyboard is on.
+ */
 export function paintNet(g, state, o = {}) {
   const { ctx, w, h, pal } = g;
   const l = netLayout(w, h);
@@ -82,19 +70,8 @@ export function paintNet(g, state, o = {}) {
     ctx.fillStyle = BODY;
     ctx.fill();
   }
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  for (const s of stickers(state)) {
-    const c = netCell(l, s.face, s.row, s.col);
-    round(ctx, c.x, c.y, c.size, c.size, c.size * 0.14);
-    ctx.fillStyle = STICKERS[s.home];
-    ctx.fill();
-    if (o.letters && c.size >= 14) {
-      ctx.fillStyle = inkOn(STICKERS[s.home]);
-      ctx.font = `700 ${c.size * 0.5}px ${pal.mono}`;
-      ctx.fillText(LETTERS[s.home], c.x + c.size / 2, c.y + c.size / 2);
-    }
-  }
+  const rect = (face, row, col) => { const c = netCell(l, face, row, col); return { x: c.x, y: c.y, w: c.size, h: c.size }; };
+  paintStickers(g, state, o.look, rect, stickers(state), { letters: o.letters });
   // the face names are a key to the net, so they stay if there is room for them
   if (l.faceGap >= 9) {
     ctx.fillStyle = pal.ink3;
@@ -106,13 +83,74 @@ export function paintNet(g, state, o = {}) {
       ctx.fillText(face, a.x - pad, a.y - pad - l.faceGap * 0.1);
     }
   }
+  if (o.trail) drawTrail(ctx, pal, l, o.trail.path, o.trail.cur);
   if (o.guide) drawAnatomy(ctx, pal, l, o.guide.move, o.guide.faint);
+  if (o.cursor) {
+    const r = rect(o.cursor.face, o.cursor.row, o.cursor.col);
+    ctx.strokeStyle = pal.alpha("bg", 0.8);
+    ctx.lineWidth = 5;
+    round(ctx, r.x - 3, r.y - 3, r.w + 6, r.h + 6, r.w * 0.2);
+    ctx.stroke();
+    ctx.strokeStyle = pal.ink;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
+const NET_LABEL = "Net of the cube, unfolded: U above F, with L, F, R, B in a row and D below. Arrow keys move between stickers; Enter follows the piece.";
+
 export function mountNet(el, store) {
-  const view = mountCanvas(el, store, (g, s) => paintNet(g, s.state, { letters: s.opts.letters, guide: s.guide }), "Net of the cube, unfolded: U above F, with L, F, R, B in a row and D below");
-  return { update: () => view.draw() };
+  let cursor = null, focused = false;
+  const trailOf = (s) => {
+    if (s.track == null) return null;
+    const path = trail(s.trace.states, s.track);
+    return path.length > 1 ? { path, cur: s.trace.states.indexOf(s.state) } : null;
+  };
+  const view = mountCanvas(el, store, (g, s) => paintNet(g, s.state, { look: look(s, s.state), letters: s.opts.letters, guide: s.guide, trail: trailOf(s), cursor: focused ? cursor : null }), NET_LABEL);
+  const { canvas } = view;
+  // a canvas with its own keys: tell assistive tech it isn't a picture
+  canvas.setAttribute("role", "application");
+  canvas.tabIndex = 0;
+  const cells = () => netCells(netLayout(canvas.clientWidth, canvas.clientHeight));
+  const idUnder = (c) => (c ? idAt(store.state.state, c.face, c.row, c.col) : null);
+  const brush = (id) => { if (store.state.hover !== id) store.set("hover", id); };
+  const toggle = (id) => { if (id != null) store.set("track", store.state.track === id ? null : id); };
+  const pointAt = (e) => { const r = canvas.getBoundingClientRect(); return cellAt(cells(), e.clientX - r.left, e.clientY - r.top); };
+  canvas.style.setProperty("cursor", "pointer");
+  canvas.addEventListener("pointermove", (e) => brush(idUnder(pointAt(e))));
+  canvas.addEventListener("pointerleave", () => { if (!focused) brush(null); });
+  canvas.addEventListener("click", (e) => { const c = pointAt(e); if (c) { cursor = { face: c.face, row: c.row, col: c.col }; toggle(idUnder(c)); } });
+  canvas.addEventListener("focus", () => {
+    focused = true;
+    cursor ||= { face: "F", row: 1, col: 1 };
+    brush(idUnder(cursor));
+    view.draw();
+  });
+  canvas.addEventListener("blur", () => { focused = false; brush(null); view.draw(); });
+  canvas.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (dir) {
+      const all = cells(), from = all.find((c) => c.face === cursor.face && c.row === cursor.row && c.col === cursor.col);
+      const to = stepCell(all, from, ...dir);
+      cursor = { face: to.face, row: to.row, col: to.col };
+      brush(idUnder(to));
+      view.draw();
+    } else if (e.key === "Enter" || e.key === " ") toggle(idAt(store.state.state, cursor.face, cursor.row, cursor.col));
+    else return;
+    e.preventDefault();
+  });
+  return {
+    update(s) {
+      // moves change which piece the cursor is on
+      if (focused) brush(idAt(s.state, cursor.face, cursor.row, cursor.col));
+      canvas.dataset.holes = String(look(s, s.state).holes.length);
+      canvas.dataset.track = s.track ?? "";
+      view.draw();
+    },
+  };
 }
 
 export default { id: "net", title: "Net", mount: mountNet };
