@@ -1,0 +1,15 @@
+{
+  "name": "cubetrace",
+  "version": "1.0.0",
+  "description": "Rubik's cube algorithms turn by turn: which pieces each move carries, where they go, and how an algorithm takes the solved part apart and puts it back. Runs entirely in the browser.",
+  "private": true,
+  "type": "module",
+  "author": "areeb",
+  "homepage": "https://areeb-ece.github.io/CubeTrace/",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\"",
+    "test:browser": "node tests/browser-check.js",
+    "serve": "node tests/serve.js 8080"
+  }
+}

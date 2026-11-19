@@ -1,8 +1,7 @@
 # Cube Trace: plan
 
-Status: **waiting for your sign-off.** Nothing but this file is written yet. Section 2
-lists the decisions I need from you, each with what I recommend; the rest of the plan
-assumes the recommended option and says where an alternative would change it.
+Status: **approved** on 2026-11-19 ("go ahead with the plan"): the recommended
+option for every decision, D1 to D9. Building milestone by milestone.
 
 The brief this answers is the one you gave on 2026-11-19 (sections 0 to 12 below are
 mine; "brief §n" points at yours).
@@ -339,8 +338,9 @@ an orientation $R$, one of the 24 rotation matrices with integer entries.
 **Operations.**
 
 - `inverse`.
-- `mirrorLR`: reflect through the M plane. L and R swap and every direction reverses.
-  Used for left/right pairs.
+- `mirrorLR`: reflect through the M plane. L and R swap (`R` becomes `L'`), turns
+  about the other two axes reverse (`U` becomes `U'`), and `x` and `M` stay as they
+  are. Used for left/right pairs.
 - `mirrorFR`: reflect through the plane holding the U–D axis and the FR edge. F and R
   swap, L and B swap, every direction reverses. The 41 F2L cases fall into such pairs
   (`R U' R'` against `F' U F`), plus a few that are their own mirror. The case grid pairs
