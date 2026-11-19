@@ -21,6 +21,7 @@ import { STICKERS } from "../js/palette.js";
 import { solved, stickers, kindOf, applyMoves } from "../js/lib/cube.js";
 import { parseMoves } from "../js/lib/notation.js";
 import { facesAt } from "../js/lib/pieces.js";
+import { METHODS } from "../js/lib/content/index.js";
 
 // Playwright from this folder's node_modules, or a machine-wide install.
 const { chromium } = await import("playwright").catch(() => createRequire(import.meta.url)("playwright"));
@@ -32,7 +33,9 @@ const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePa
 fs.mkdirSync(SHOTS, { recursive: true });
 
 const frame = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-async function open(viewport, init, more = {}) {
+// Learn is the default mode; the older checks drive the moves box, so they start in Explore
+// (more.learn keeps Learn).
+async function open(viewport, init, { learn, ...more } = {}) {
   const context = await browser.newContext({ viewport, ...more });
   if (init) await context.addInitScript(init);
   const page = await context.newPage();
@@ -46,6 +49,7 @@ async function open(viewport, init, more = {}) {
   });
   await page.goto(base);
   await page.waitForSelector(".dk-stack");
+  if (!learn) await page.click('#modeSeg [data-mode="explore"]');
   // Hold the sky still: nothing checked here moves, and its drift repaints every frame.
   if (design) await page.evaluate(() => window.SiteDesign?.set({ motion: false }));
   await frame(page);
@@ -195,14 +199,23 @@ try {
     await page.context().close();
   }
 
-  // ── phone: one column, nothing sideways ──
+  // ── phone: the stage on top, the panel a drawer, nothing sideways ──
   {
     const { page, clean } = await open({ width: 390, height: 844 }, null, { hasTouch: true });
+    assert.ok(await page.isVisible("#btnMenu"), "the menu button");
+    assert.ok(await page.isHidden(".side"), "the panel is a drawer, closed at first");
+    await page.click("#btnMenu");
+    assert.ok(await page.isVisible(".side"), "the Menu button opens it");
+    assert.equal(await page.getAttribute("#btnMenu", "aria-expanded"), "true");
+    assert.deepEqual(await page.evaluate(() => ["stage", "strip"].map((id) => document.getElementById(id).inert)), [true, true], "the page behind is inert");
     await typeMoves(page, "R U R' U'");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".side", { state: "hidden" });
+    assert.deepEqual(await page.evaluate(() => ["stage", "strip"].map((id) => document.getElementById(id).inert)), [false, false], "Escape gives the page back");
     assert.deepEqual(await openViews(page), ["cube", "net", "ll"]);
-    const [cube, net, side] = await Promise.all([CUBE, NET, ".side"].map((s) => page.locator(s).boundingBox()));
-    assert.ok(cube.height > 150 && net.height > 150 && cube.y < net.y && net.y < side.y, `a column: cube ${cube.y}, net ${net.y}, moves ${side.y}`);
-    assert.ok(cube.width <= 390 && net.width <= 390 && side.width <= 390);
+    const [cube, net, tl] = await Promise.all([CUBE, NET, "#tlDock .tl"].map((s) => page.locator(s).boundingBox()));
+    assert.ok(cube.height > 150 && net.height > 150 && cube.y < net.y && net.y < tl.y, `a column: cube ${cube.y}, net ${net.y}, timeline ${tl.y}`);
+    assert.ok(cube.width <= 390 && net.width <= 390 && tl.width <= 390);
     assert.ok((await painted(page, CUBE)) > 2000, "the cube is drawn on the phone");
     const strip = await page.locator("#strip").boundingBox();
     assert.ok(strip.y + strip.height <= 845 && strip.width <= 390, `the transport is pinned at the bottom: ${JSON.stringify(strip)}`);
@@ -213,10 +226,21 @@ try {
       await frame(page);
       await page.screenshot({ path: path.join(SHOTS, `390-${label}.png`), fullPage: true });
     }
+    // the lessons: choosing a case closes the drawer and the cube shows it
+    await page.click('#modeSeg [data-mode="learn"]');
+    await page.click("#btnMenu");
+    await page.click('#learnPanel [data-step="white-corners"]');
+    await page.waitForTimeout(100);
+    assert.ok(await page.isVisible("#learnPanel .case"), "the case grid is in the drawer");
+    const [grid, side] = await Promise.all(["#learnPanel .cases", ".side"].map((s) => page.locator(s).boundingBox()));
+    assert.ok(grid.x >= side.x && grid.x + grid.width <= side.x + side.width + 1, "the grid fits the drawer");
+    await page.click('#learnPanel .case[aria-label="White facing down"]');
+    await page.waitForSelector(".side", { state: "hidden" });
+    await frame(page);
+    assert.equal(await page.$$eval("#timeline .tl-chip", (c) => c.length), 12, "the case's algorithm is under the cube");
     await clean("phone");
     await page.context().close();
   }
-
 
   // ── playback: the strip, the keys, the guides ──
   {
@@ -520,6 +544,193 @@ try {
     assert.ok(await page.isHidden("#timeline .tl-comm"), "Sune is not a commutator");
     assert.equal(await page.$$eval("#timeline .tl-band[data-role='trigger']", (c) => c.length), 1);
     await clean("timeline");
+    await page.context().close();
+  }
+
+  // ── Learn: the beginner method and CFOP, step by step ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 }, null, { learn: true });
+    const SIDE = "#side", chips = () => page.$$eval("#timeline .tl-chip", (c) => c.map((x) => x.textContent));
+    const scrubTo = async (v) => { await page.evaluate((v) => { const r = document.getElementById("timeRange"); r.value = v; r.dispatchEvent(new Event("input", { bubbles: true })); }, v); await frame(page); };
+    const toEnd = async () => scrubTo(await page.$eval("#timeRange", (r) => r.max));
+    // every sticker of the faces (rows: which rows) is its face's centre colour on the net, in full colour
+    const faceSolid = async (faces, rows, what) => {
+      for (const f of faces) {
+        const mid = await netColour(page, f, 1, 1);
+        for (const r of rows) for (let c = 0; c < 3; c++) {
+          const got = await netColour(page, f, r, c);
+          assert.ok(got.every((v, i) => Math.abs(v - mid[i]) <= 6), `${what}: ${f}${r}${c} is rgb(${got}), its centre is rgb(${mid})`);
+        }
+      }
+    };
+    const fullColour = async () => { if ((await page.getAttribute("#btnFull", "aria-pressed")) !== "true") { await page.click("#btnFull"); await frame(page); } };
+    const untilChips = (first) => page.waitForFunction((t) => document.querySelector("#timeline .tl-chip")?.textContent !== t, first, { timeout: 8000 });
+
+    // the defaults: Learn, Beginner, its seven steps, the first case, paused at the start
+    assert.equal(await page.getAttribute('#modeSeg [data-mode="learn"]', "aria-checked"), "true");
+    assert.equal(await page.$eval("#method", (s) => s.value), "beginner");
+    assert.ok(await page.isVisible("#methodBox") && await page.isHidden("#moves"), "Learn shows the method, not the moves box");
+    assert.equal((await page.$$("#learnPanel .steps button")).length, 7);
+    assert.equal(await page.getAttribute("#learnPanel .steps button >> nth=0", "aria-current"), "step");
+    assert.equal(await page.$$eval("#learnPanel .steps [aria-current]", (b) => b.length), 1);
+    assert.match(await page.textContent("#learnPanel .intro"), /^Put the four white edges/);
+    assert.ok(await page.isHidden("#roleSet"), "no Show chooser in Learn");
+    assert.equal(await page.getAttribute("#side", "data-goal"), null);
+    await assertSticker(page, "D", 1, 1, "D", "step 1 holds the cube white up (yellow at the bottom)");
+
+    // second layer: the cube turns over (z2), then "Edge goes right" plays to the first two layers
+    await page.click('#learnPanel [data-step="second-layer"]');
+    await untilChips("z2");
+    await settle(page);
+    assert.equal(await page.getAttribute('#learnPanel [data-step="second-layer"]', "aria-current"), "step");
+    await assertSticker(page, "U", 1, 1, "D", "after the turn-over, yellow is up");
+    assert.ok(await page.isVisible("#learnPanel .lead button"), "a button turns it over again");
+    await page.click('#learnPanel .case[aria-label="Edge goes right"]');
+    await frame(page);
+    assert.equal(await page.textContent("#learnPanel .case-name"), "Edge goes right");
+    assert.equal((await chips()).join(" "), "U R U' R' U' F' U F");
+    assert.equal(await page.getAttribute(SIDE, "data-goal"), null, "no goal before the end");
+    await fullColour();
+    await toEnd();
+    await faceSolid(["D"], [0, 1, 2], "second layer");
+    await faceSolid(["F", "R", "B", "L"], [1, 2], "second layer");
+    assert.equal(await page.getAttribute(SIDE, "data-goal"), "met");
+    assert.ok(await page.isHidden("#learnPanel .detail .sd-callout"), "no warning");
+    await scrubTo(0);
+    assert.equal(await page.getAttribute(SIDE, "data-goal"), null, "leaving the end clears it");
+    await shot(page, "learn-second-layer");
+
+    // the mirror: this case has a partner (switch to it), a case without one has none
+    assert.equal(await page.getAttribute("#btnMirror", "aria-disabled"), "false");
+    assert.equal(await page.getAttribute("#btnMirror", "aria-pressed"), "false");
+    await page.click("#btnMirror");
+    await frame(page);
+    assert.equal(await page.textContent("#learnPanel .case-name"), "Edge goes left");
+    assert.equal(await page.getAttribute("#btnMirror", "aria-pressed"), "true");
+    await page.click('#learnPanel [data-step="white-corners"]');
+    await frame(page);
+    assert.equal(await page.getAttribute("#btnMirror", "aria-disabled"), "true", "no partner for a white corner");
+    assert.match(await page.getAttribute("#btnMirror", "title"), /no left or right partner/);
+    const before = await chips();
+    await page.click("#btnMirror", { force: true });
+    assert.deepEqual(await chips(), before, "a disabled toggle does nothing");
+
+    // turning over, both ways round: step 2 to step 3 ends with yellow up; the button does it again
+    await untilChips("z2").catch(() => {});
+    await page.click('#learnPanel [data-step="second-layer"]');
+    await untilChips("z2");
+    await settle(page);
+    await assertSticker(page, "U", 1, 1, "D", "yellow up in step 3");
+    await page.click("#learnPanel .lead button");
+    await untilChips("z2");
+    await settle(page);
+    await assertSticker(page, "U", 1, 1, "D", "yellow up again");
+    await page.click('#learnPanel [data-step="yellow-cross"]');
+    await frame(page);
+    assert.ok(await page.isHidden("#learnPanel .lead button"), "only the second-layer step has the turn-over button");
+    await assertSticker(page, "U", 1, 1, "D", "no second turn between yellow steps");
+
+    // CFOP: PLL has 21 thumbnails; T perm solves the whole cube
+    await page.selectOption("#method", "cfop");
+    await frame(page);
+    assert.equal(await page.$$eval("#learnPanel .steps button", (b) => b.length), 6);
+    await page.click('#learnPanel [data-step="pll"]');
+    await frame(page);
+    assert.equal((await page.$$("#learnPanel .case")).length, 21);
+    assert.equal(await page.$$eval("#learnPanel .group h3", (h) => h.length), 3, "grouped");
+    await page.waitForTimeout(150);
+    assert.ok((await painted(page, "#learnPanel .case canvas")) > 200, "a thumbnail is drawn");
+    await page.click('#learnPanel .case[aria-label="T perm"]');
+    await frame(page);
+    assert.equal((await chips()).join(" "), "R U R' U' R' F R2 U' R' U' R U R' F'");
+    await toEnd();
+    await faceSolid(["U", "D", "F", "R", "B", "L"], [0, 1, 2], "T perm");
+    assert.equal(await page.getAttribute(SIDE, "data-goal"), "met");
+    await shot(page, "learn-pll");
+
+    // the OLL grid: 57 cases, drawn as they scroll in
+    await page.click('#learnPanel [data-step="oll"]');
+    await frame(page);
+    assert.equal((await page.$$("#learnPanel .case")).length, 57);
+    const drawnCount = () => page.$$eval("#learnPanel .case canvas", (cs) => cs.filter((cv) => { const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; return d.some((v, i) => i % 4 === 3 && v); }).length);
+    await page.waitForTimeout(200);
+    const first = await drawnCount();
+    assert.ok(first > 0 && first < 57, `thumbnails are drawn lazily (${first} of 57 so far)`);
+    await shot(page, "learn-oll");
+
+    // F2L: the four ideas, 41 cases, and the mirror shows the left slot's algorithm
+    await page.click('#learnPanel [data-step="f2l"]');
+    await frame(page);
+    assert.equal((await page.$$("#learnPanel .concept")).length, 4);
+    assert.equal((await page.$$("#learnPanel .case")).length, 41);
+    const names = await page.$$eval("#learnPanel .case", (b) => b.map((x) => x.getAttribute("aria-label")));
+    assert.equal(new Set(names).size, 41, "every thumbnail has a name of its own");
+    const f2l = METHODS[1].steps.find((st) => st.id === "f2l"), c0 = f2l.cases[0];
+    assert.equal((await chips()).join(" "), c0.alg);
+    assert.equal(await page.getAttribute("#btnMirror", "aria-disabled"), "false");
+    await page.click("#btnMirror");
+    await frame(page);
+    assert.equal(await page.getAttribute("#btnMirror", "aria-pressed"), "true");
+    assert.equal((await chips()).join(" "), c0.mirrorAlg, "the left slot's version");
+    assert.notEqual(c0.mirrorAlg, c0.alg);
+    await toEnd();
+    assert.equal(await page.getAttribute(SIDE, "data-goal"), "met", "the mirror reaches the goal too");
+    await page.click("#btnMirror");
+    await frame(page);
+    assert.equal((await chips()).join(" "), c0.alg, "and back");
+    // a concept's algorithm loads as a case
+    await page.click("#learnPanel .concept .chips button >> nth=1");
+    await frame(page);
+    assert.equal((await chips()).join(" "), "F' U' F");
+    await shot(page, "learn-f2l");
+
+    // "also used in" jumps
+    await page.click('#learnPanel [data-step="oll2"]');
+    await frame(page);
+    await page.click('#learnPanel .case[aria-label="Line"]');
+    await frame(page);
+    await page.click("#learnPanel .also button");
+    await frame(page);
+    assert.equal(await page.$eval("#method", (m) => m.value), "beginner");
+    assert.equal(await page.getAttribute('#learnPanel [data-step="yellow-cross"]', "aria-current"), "step");
+    await clean("learn");
+
+    // the choice survives a reload; Explore is remembered too
+    await page.selectOption("#method", "cfop");
+    await page.click('#learnPanel [data-step="oll"]');
+    await page.click('#learnPanel .case[data-case="oll-21"]');
+    await frame(page);
+    await page.reload();
+    await page.waitForSelector(".dk-stack");
+    await frame(page);
+    assert.equal(await page.$eval("#method", (m) => m.value), "cfop");
+    assert.equal(await page.getAttribute('#learnPanel [data-step="oll"]', "aria-current"), "step");
+    assert.equal(await page.getAttribute('#learnPanel .case[data-case="oll-21"]', "aria-current"), "true");
+    assert.equal(await page.getAttribute('#modeSeg [data-mode="learn"]', "aria-checked"), "true");
+    // Explore and back: the moves box keeps what was typed, and the lesson comes back
+    await page.click('#modeSeg [data-mode="explore"]');
+    await typeMoves(page, "R U");
+    await page.click('#modeSeg [data-mode="learn"]');
+    await frame(page);
+    assert.equal((await chips()).join(" "), METHODS[1].steps.find((st) => st.id === "oll").cases.find((c) => c.id === "oll-21").alg);
+    await page.click('#modeSeg [data-mode="explore"]');
+    await frame(page);
+    assert.equal(await page.$eval("#moves", (t) => t.value), "R U");
+    assert.equal((await chips()).join(" "), "R U");
+    await page.reload();
+    await page.waitForSelector(".dk-stack");
+    assert.equal(await page.getAttribute('#modeSeg [data-mode="explore"]', "aria-checked"), "true", "Explore is remembered");
+    await page.context().close();
+  }
+
+  // ── Learn with motion off: the turn-over jumps ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 }, null, { learn: true, reducedMotion: "reduce" });
+    await page.click('#learnPanel [data-step="second-layer"]');
+    await frame(page);
+    assert.equal((await page.$$eval("#timeline .tl-chip", (c) => c.map((x) => x.textContent))).join(" "), "U R U' R' U' F' U F", "no turn to wait for");
+    await assertSticker(page, "U", 1, 1, "D", "yellow is up at once");
+    await clean("learn, motion off");
     await page.context().close();
   }
 

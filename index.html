@@ -33,7 +33,13 @@
       <h1 class="sd-wordmark">CUBE<span>/</span>TRACE</h1>
       <a class="by" href="https://areeb-ece.github.io/" rel="noopener noreferrer">by areeb</a>
     </div>
+    <div class="sd-seg" id="modeSeg" role="radiogroup" aria-label="Mode">
+      <button type="button" role="radio" data-mode="learn" aria-checked="true">Learn</button>
+      <button type="button" role="radio" data-mode="explore" aria-checked="false">Explore</button>
+    </div>
+    <span class="sd-select sd-small" id="methodBox"><select id="method" aria-label="Method"></select></span>
     <span class="sd-grow"></span>
+    <button class="sd-btn sd-small btn-menu" type="button" id="btnMenu" aria-controls="side" aria-expanded="false">Menu</button>
     <button class="sd-btn sd-small" type="button" id="btnNotation" aria-haspopup="dialog">Notation</button>
     <button class="sd-btn sd-small" type="button" id="btnKeys" aria-haspopup="dialog">Keys</button>
     <button class="sd-btn sd-small" type="button" id="btnView" popovertarget="viewPop" aria-haspopup="dialog" aria-expanded="false" aria-controls="viewPop">View</button>
@@ -42,35 +48,40 @@
   </header>
 
   <div class="work">
-    <aside class="side" aria-labelledby="movesTitle">
-      <div class="sd-callout" id="primerCallout" hidden>
-        <p>New to cube notation? Open the primer.</p>
-        <p class="sd-hint">Red and orange look alike to many people: View → Letters on stickers.</p>
-        <div class="acts">
-          <button class="sd-btn sd-small sd-primary" type="button" id="btnPrimerOpen">Open the primer</button>
-          <button class="sd-btn sd-small sd-ghost" type="button" id="btnPrimerDismiss">Dismiss</button>
+    <aside class="side" id="side" aria-labelledby="movesTitle" data-mode="learn">
+      <button class="sd-x drawer-x" type="button" id="btnDrawerX" aria-label="Close the menu">×</button>
+      <div class="panel" id="explorePanel" hidden>
+        <div class="sd-callout" id="primerCallout" hidden>
+          <p>New to cube notation? Open the primer.</p>
+          <p class="sd-hint">Red and orange look alike to many people: View → Letters on stickers.</p>
+          <div class="acts">
+            <button class="sd-btn sd-small sd-primary" type="button" id="btnPrimerOpen">Open the primer</button>
+            <button class="sd-btn sd-small sd-ghost" type="button" id="btnPrimerDismiss">Dismiss</button>
+          </div>
+        </div>
+        <h2 id="movesTitle">Moves</h2>
+        <div class="sd-field">
+          <textarea class="sd-textarea sd-mono" id="moves" rows="6" aria-labelledby="movesTitle" aria-describedby="movesHint movesError" placeholder="R U R' U'" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"></textarea>
+          <p class="sd-hint" id="movesHint">Faces U D L R F B. ' turns back, 2 turns twice, (…)3 repeats.</p>
+        </div>
+        <div id="tlExplore"><section class="tl" id="timeline" aria-label="Structure of the moves" hidden></section></div>
+        <div class="sd-callout sd-danger" id="movesError" role="alert" hidden>
+          <p id="errorText"></p>
+          <pre class="where" id="errorWhere" aria-hidden="true"></pre>
+        </div>
+        <div class="sd-field">
+          <label class="sd-label" for="roleSet">Show</label>
+          <span class="sd-select"><select id="roleSet" aria-describedby="roleHint"></select></span>
+          <p class="sd-hint" id="roleHint">Greyed pieces don't matter for this step. Where the step calls for it, the moves start with yellow up and green in front.</p>
         </div>
       </div>
-      <h2 id="movesTitle">Moves</h2>
-      <div class="sd-field">
-        <textarea class="sd-textarea sd-mono" id="moves" rows="6" aria-labelledby="movesTitle" aria-describedby="movesHint movesError" placeholder="R U R' U'" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"></textarea>
-        <p class="sd-hint" id="movesHint">Faces U D L R F B. ' turns back, 2 turns twice, (…)3 repeats.</p>
-      </div>
-      <section class="tl" id="timeline" aria-label="Structure of the moves" hidden></section>
-      <div class="sd-callout sd-danger" id="movesError" role="alert" hidden>
-        <p id="errorText"></p>
-        <pre class="where" id="errorWhere" aria-hidden="true"></pre>
-      </div>
-      <div class="sd-field">
-        <label class="sd-label" for="roleSet">Show</label>
-        <span class="sd-select"><select id="roleSet" aria-describedby="roleHint"></select></span>
-        <p class="sd-hint" id="roleHint">Greyed pieces don't matter for this step. Where the step calls for it, the moves start with yellow up and green in front.</p>
-      </div>
+      <div class="panel learn" id="learnPanel"></div>
     </aside>
 
     <main class="stage" id="stage" data-sky>
       <div class="dock" id="dock" tabindex="-1"></div>
     </main>
+    <div class="tl-dock" id="tlDock"></div>
   </div>
 
   <div class="strip" id="strip" role="group" aria-label="Playback">
@@ -86,9 +97,11 @@
       <button type="button" role="radio" data-speed="1" aria-checked="true">1×</button>
       <button type="button" role="radio" data-speed="2" aria-checked="false">2×</button>
     </div>
+    <div class="sd-seg" id="mirrorSeg" hidden><button type="button" id="btnMirror" aria-pressed="false" aria-disabled="true" title="This case has no left or right partner">Mirror</button></div>
     <div class="sd-seg" id="fullSeg"><button type="button" id="btnFull" aria-pressed="false" title="Show every sticker in full colour; outlines stay">Full colour</button></div>
     <button class="sd-btn sd-small" type="button" id="btnChunk" title="Play to the end of this chunk">Play chunk</button>
   </div>
+  <div class="scrim" id="scrim" hidden></div>
 </div>
 
 <dialog class="sd-dialog primer" id="primer" aria-labelledby="primerTitle">
