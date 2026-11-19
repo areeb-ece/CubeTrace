@@ -1,7 +1,7 @@
 // Every duration the page uses, in one place. CSS durations come from the shared
 // tokens; JS reads them here so the Animations switch and reduced motion (which zero
 // --dur-3) reach the cube with no extra code path.
-import { autoChunks } from "./lib/structure.js";
+import { chunksFor } from "./lib/chunks.js";
 
 /** A turn lasts this many times --dur-3 at 1×. */
 export const TURN_FACTOR = 2;
@@ -49,7 +49,7 @@ export function boundaries(chunks, n) {
   for (const c of chunks) { set.add(c.start); set.add(c.end); }
   return [...set].filter((i) => i >= 0 && i <= n).sort((a, b) => a - b);
 }
-export const boundariesOf = (moves) => boundaries(autoChunks(moves), moves.length);
+export const boundariesOf = (moves, parts) => boundaries(chunksFor(moves, parts), moves.length);
 /** The first stop after index i (or the last one). */
 export const nextStop = (stops, i) => stops.find((s) => s > i) ?? stops[stops.length - 1];
 /** The last stop before index i (or the first one). */

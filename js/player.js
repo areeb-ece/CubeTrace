@@ -3,7 +3,7 @@
 //
 // Published to the store:
 //   play   { index, t, playing, speed }
-//   seq    { n, chunks }                      (the moves' length and their chunks)
+//   seq    { n, chunks, moves }               (the moves, their length and their chunks)
 //   start  the cube the moves are played from (the role set's holding); trace its states
 //   state  the cube the net shows: the state at the start of the move being turned
 //   shown  { state, turn }                    what the 3D cube draws (turn: { move, t } or null)
@@ -13,7 +13,7 @@
 // of the move just made stay up for a dwell instead.
 import { trace } from "./lib/trace.js";
 import { inverseMove } from "./lib/moves.js";
-import { autoChunks } from "./lib/structure.js";
+import { chunksFor } from "./lib/chunks.js";
 import { turnMs, dwellMs, tween, boundaries, nextStop, prevStop } from "./timing.js";
 import { roles } from "./lib/roles.js";
 import { announce, describeMove, describeMoved } from "./announce.js";
@@ -98,15 +98,15 @@ export function createPlayer(store) {
   }
 
   const api = {
-    /** New moves from the moves box: show the end state, paused. */
-    setMoves(list) {
+    /** New moves from the moves box: show the end state, paused. parts: hand-written chunks, if any. */
+    setMoves(list, parts) {
       halt(false);
       moves = list;
       tr = trace(store.state.start, moves);
       store.set("trace", tr);
-      chunks = autoChunks(moves);
+      chunks = chunksFor(moves, parts);
       stops = boundaries(chunks, n());
-      store.set("seq", { n: n(), chunks });
+      store.set("seq", { n: n(), chunks, moves });
       store.patch("play", { index: n(), t: 0, playing: false });
       publish();
     },
