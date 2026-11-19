@@ -16,11 +16,11 @@ export const CROSS = {
 
 export const CFOP_STEPS = {
   cross: { id: "cross", name: "Cross", holding: "yellowUp", roles: "cross", goal: "cross" },
-  f2l: { id: "f2l", name: "F2L", holding: "yellowUp", roles: "f2l", goal: "f2l", intro: "First two layers, one corner–edge pair at a time. Learn the four ideas first; the 41 cases are those ideas applied to every way a pair can sit." },
-  oll2: { id: "oll2", name: "2-look OLL", holding: "yellowUp", roles: "oll", goal: "oll", intro: "Two looks: first make the yellow cross on top (3 cases), then twist the corners up (7 cases)." },
-  pll2: { id: "pll2", name: "2-look PLL", holding: "yellowUp", roles: "pll", goal: "solved", intro: "Two looks: first put the corners in place (2 cases), then the edges (4 cases)." },
-  oll: { id: "oll", name: "OLL", holding: "yellowUp", roles: "oll", goal: "oll", intro: "All 57 cases: yellow up in one algorithm. Grouped by the shape the yellow stickers make." },
-  pll: { id: "pll", name: "PLL", holding: "yellowUp", roles: "pll", goal: "solved", intro: "All 21 cases: the last layer in place in one algorithm. Recognise them from the side stickers." },
+  f2l: { id: "f2l", name: "F2L", holding: "yellowUp", roles: "f2l", goal: "f2l", intro: "First two layers, one corner–edge pair at a time. Learn the four ideas first; the cases below are those ideas applied to every way a pair can sit." },
+  oll2: { id: "oll2", name: "2-look OLL", holding: "yellowUp", roles: "oll", goal: "oll", intro: "Two looks: first make the yellow cross on top, then twist the corners up." },
+  pll2: { id: "pll2", name: "2-look PLL", holding: "yellowUp", roles: "pll", goal: "solved", intro: "Two looks: first put the corners in place, then the edges." },
+  oll: { id: "oll", name: "OLL", holding: "yellowUp", roles: "oll", goal: "oll", intro: "Yellow up in one algorithm. Grouped by the shape the yellow stickers make." },
+  pll: { id: "pll", name: "PLL", holding: "yellowUp", roles: "pll", goal: "solved", intro: "The last layer in place in one algorithm. Recognise them from the side stickers." },
 };
 
 /** Hand-written structure for the 2-look algorithms (setup and undo share a pair number). */

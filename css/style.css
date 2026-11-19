@@ -85,11 +85,52 @@ code, pre { font-family: var(--font-mono); }
 
 /* ── the side panel: where the moves are typed (local) ── */
 .side { flex: none; width: 20rem; display: grid; align-content: start; gap: var(--sp-3); padding: var(--sp-4); margin: 0 0 var(--gap) var(--gap); border-radius: var(--r); background: var(--sheet); overflow: auto; overscroll-behavior: contain; }
+.side .panel { display: grid; gap: var(--sp-3); align-content: start; }
 .side h2 { font: var(--fw-head) var(--fs-3)/1.3 var(--font-text); }
 .side .sd-textarea { min-height: 9em; }
 .side .sd-callout { display: grid; gap: var(--sp-2); }
 .side .sd-callout .acts { display: flex; gap: var(--sp-2); }
 .side .where { margin: var(--sp-2) 0 0; overflow-x: auto; font-size: var(--fs-1); color: var(--ink-2); white-space: pre; }
+
+
+/* ── Learn: the steps, the case grid and the selected case (local) ──
+   The grid scrolls on its own when the panel has room, so the case and its timeline stay put. */
+.side[data-mode="learn"] { width: 26rem; display: flex; flex-direction: column; overflow: hidden; }
+.side .panel.learn { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-3); overflow: auto; overscroll-behavior: contain; }
+.side .panel.learn > * { flex: none; }
+.side .drawer-x { display: none; }
+.steps { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+.steps .sd-btn { gap: var(--sp-1); }
+.steps .n { font-family: var(--font-mono); opacity: .7; }
+.steps .sd-btn[aria-current="step"], .steps .sd-btn[aria-current="step"]:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: var(--fw-strong); }
+.lead { display: grid; justify-items: start; gap: var(--sp-2); }
+.intro { color: var(--ink-2); line-height: 1.5; }
+.concepts > summary { cursor: pointer; font: var(--fw-strong) var(--fs-1)/1.3 var(--font-text); color: var(--ink-2); }
+.concepts > .concept, .concepts > summary { margin-bottom: var(--sp-2); }
+.concept { display: grid; gap: var(--sp-1); padding: var(--sp-3) var(--sp-4); border-radius: var(--r); background: var(--sheet-2); }
+.concept h3 { font: var(--fw-head) var(--fs-2)/1.3 var(--font-text); }
+.concept p { color: var(--ink-2); font-size: var(--fs-1); line-height: 1.45; }
+.chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-1); }
+.detail { display: grid; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-radius: var(--r); background: var(--sheet-2); }
+.case-name { font: var(--fw-head) var(--fs-3)/1.3 var(--font-text); }
+.recog, .also { color: var(--ink-2); font-size: var(--fs-1); line-height: 1.45; }
+.tl-slot:empty { display: none; }
+.side .panel.learn > .cases { flex: 1 0 14rem; overflow: auto; overscroll-behavior: contain; display: grid; gap: var(--sp-3); align-content: start; padding: var(--sp-1); margin: calc(-1 * var(--sp-1)); }
+.group { display: grid; gap: var(--sp-2); }
+.group h3 { font: var(--fw-strong) var(--fs-1)/1.3 var(--font-text); color: var(--ink-2); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); gap: var(--sp-2); }
+.grid[data-kind="f2l"] { grid-template-columns: repeat(auto-fill, minmax(5.25rem, 1fr)); }
+.grid[data-kind="ll"] { grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr)); }
+.case { display: grid; grid-template-rows: auto 1fr; justify-items: center; gap: var(--sp-1); min-width: 0; padding: var(--sp-1); border: 1px solid var(--rule-2); border-radius: var(--r-sm); background: var(--card); color: var(--ink-2); font: var(--fw-ui) var(--fs-1)/1.25 var(--font-text); text-align: center; cursor: pointer; }
+.case canvas { display: block; width: 100%; aspect-ratio: 1; }
+.case-label { overflow-wrap: anywhere; padding: 0 var(--sp-1) var(--sp-1); }
+@media (hover: hover) { .case:hover { background: var(--card-hover); color: var(--ink); } }
+.case[aria-current="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--tint); color: var(--ink); font-weight: var(--fw-strong); }
+.sd-seg button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.bar .sd-select { width: 8.5rem; }
+.sd-btn.btn-menu { display: none; }
+.tl-dock { display: none; }
+.scrim { position: fixed; inset: 0; z-index: calc(var(--z-drawer) - 1); background: var(--scrim); }
 
 /* ── the timeline under the moves box (local): chips, inverse-pair brackets, chunk bands ──
    A band's shape says what its colour does: setup and undo are a bracket cupped under their
@@ -192,13 +233,24 @@ code, pre { font-family: var(--font-mono); }
 @media (max-width: 759px) {
   html, body { height: auto; }
   .app { height: auto; min-height: 100dvh; }
-  .bar.sd-bar { padding: var(--sp-2) var(--sp-3); }
+  .bar.sd-bar { padding: var(--sp-2) var(--sp-3); flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); }
+  .bar .sd-select { width: 6.5rem; }
+  .bar .sd-grow { display: none; }
+  .sd-btn.btn-menu { display: inline-flex; order: -1; }
+  .brand { order: -1; margin-right: auto; }
   .brand .by { display: none; }
   .work { flex-direction: column; }
   /* the transport stays at the bottom of the screen while the page scrolls */
   .strip { position: sticky; bottom: 0; z-index: var(--z-sticky); flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); }
   .stage { order: -1; flex: none; overflow: visible; }
-  .side { width: auto; margin: 0 var(--gap) var(--sp-6); }
+  /* the side panel is a drawer: off to the left until the Menu button brings it in */
+  .side, .side[data-mode="learn"] { position: fixed; inset: 0 auto 0 0; z-index: var(--z-drawer); width: min(26rem, calc(100vw - var(--sp-8))); margin: 0; border-radius: 0 var(--r) var(--r) 0; transform: translateX(-100%); visibility: hidden; transition: transform var(--dur-3) var(--ease-drawer), visibility 0s linear var(--dur-3); }
+  .side[data-open] { transform: none; visibility: visible; transition-delay: 0s; }
+  .side:not([data-mode="learn"]) { overflow: auto; }
+  .side .drawer-x { display: inline-flex; position: absolute; top: var(--sp-2); right: var(--sp-2); z-index: 1; }
+  .side .panel { padding-top: var(--sp-5); }
+  .tl-dock { display: block; }
+  .tl-dock > .tl { margin: 0 var(--gap) var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--r); background: var(--sheet); }
 }
 
 @media print {

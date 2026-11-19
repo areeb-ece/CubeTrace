@@ -35,11 +35,11 @@ function build(c, holding) {
 // F2L: which of five groups a case is in, read off its start state.
 const PAIR = IDS.filter((id) => { const p = POS[HOLDINGS.yellowUp.pos[id]]; return kindOf(id) !== "centre" && p[0] === 1 && p[2] === 1 && p[1] < 1; });
 export const F2L_GROUPS = [
-  { id: "up-white-up", name: "Corner on top, white facing up" },
-  { id: "up-white-side", name: "Corner on top, white on the side" },
-  { id: "corner-slot", name: "Corner in the slot, edge on top" },
-  { id: "edge-slot", name: "Edge in the slot, corner on top" },
-  { id: "both-slot", name: "Both in the slot" },
+  { id: "up-white-up", name: "Corner on top, white facing up", short: "White up" },
+  { id: "up-white-side", name: "Corner on top, white on the side", short: "White on the side" },
+  { id: "corner-slot", name: "Corner in the slot, edge on top", short: "Corner in slot" },
+  { id: "edge-slot", name: "Edge in the slot, corner on top", short: "Edge in slot" },
+  { id: "both-slot", name: "Both in the slot", short: "Both in slot" },
 ];
 function f2lGroup(s) {
   const corner = PAIR.find((id) => kindOf(id) === "corner"), edge = PAIR.find((id) => kindOf(id) === "edge");
@@ -59,7 +59,7 @@ function f2lStep() {
   const cases = F2L.map((alg, i) => build({ id: `f2l-${i + 1}`, alg }, "yellowUp"));
   for (const c of cases) c.group = f2lGroup(c.start);
   // number within each group, in the order the groups are taught
-  for (const g of F2L_GROUPS) cases.filter((c) => c.group === g.id).forEach((c, i) => { c.name = `${g.name.split(",")[0]} ${i + 1}`; c.recognition = g.name + "."; });
+  for (const g of F2L_GROUPS) cases.filter((c) => c.group === g.id).forEach((c, i) => { c.name = `${g.short} ${i + 1}`; c.recognition = g.name + "."; });
   cases.sort((a, b) => F2L_GROUPS.findIndex((g) => g.id === a.group) - F2L_GROUPS.findIndex((g) => g.id === b.group));
   // partners through the slot's diagonal: the same pair position, mirrored
   const byKey = new Map(cases.map((c) => [keyModUAlg(c.moves, { part: pairKey }), c]));

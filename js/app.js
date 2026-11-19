@@ -17,10 +17,13 @@ import { mountTransport, isSpeed } from "./transport.js";
 import { mountKeys } from "./keys.js";
 import { mountTimeline } from "./views/timeline.js";
 import { mountPrimer } from "./primer.js";
+import { mountLearn } from "./learn.js";
+import { METHODS } from "./lib/content/index.js";
+import { validSel } from "./lib/lesson.js";
 import { TYPING_DEBOUNCE } from "./timing.js";
 
 const VIEWS = [cube, net, ll];
-const OPTIONS_KEY = "cubetrace.options", LAYOUT_KEY = "cubetrace.layout", SEEN_KEY = "cubetrace.primerSeen", VERSION = 1;
+const OPTIONS_KEY = "cubetrace.options", LAYOUT_KEY = "cubetrace.layout", SEEN_KEY = "cubetrace.primerSeen", SEL_KEY = "cubetrace.sel", VERSION = 1;
 const DEFAULT_LAYOUT = () => row([0.55, 0.45], stack("cube"), col([0.6, 0.4], stack("net"), stack("ll")));
 
 // ── what is remembered: the options, validated ──
@@ -34,6 +37,8 @@ function restoreOptions() {
 }
 
 const opts = restoreOptions();
+// Learn borrows opts.roleSet for the step it shows; what is saved is the Explore chooser's.
+let exploreRoleSet = opts.roleSet;
 const start = HOLDINGS[ROLE_SETS[opts.roleSet].holding];
 const store = createStore({
   moves: "", start, trace: trace(start, []), state: start, shown: { state: start, turn: null }, guide: null, busy: false,
@@ -44,7 +49,7 @@ const store = createStore({
 });
 const { state } = store;
 const player = createPlayer(store);
-const saveOptions = () => storage.set(OPTIONS_KEY, { v: VERSION, ...state.opts });
+const saveOptions = () => storage.set(OPTIONS_KEY, { v: VERSION, ...state.opts, roleSet: exploreRoleSet });
 
 // ── the workspace ──
 const host = document.getElementById("dock");
@@ -98,6 +103,7 @@ function readMoves(then = "set") {
 box.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(readMoves, TYPING_DEBOUNCE); });
 // A key turn writes the move on the end of the box (on a new line after a comment, which would swallow it).
 function turnByKey(text) {
+  if (mode !== "explore") return; // a lesson's moves aren't the visitor's to change
   clearTimeout(typing);
   const v = box.value, last = v.slice(v.lastIndexOf("\n") + 1);
   box.value = v + (last.includes("//") ? "\n" : v && !/\s$/.test(v) ? " " : "") + text;
@@ -116,6 +122,7 @@ const roleSel = document.getElementById("roleSet");
 for (const [id, name] of Object.entries(ROLE_NAMES)) roleSel.append(h("option", { value: id, text: name }));
 roleSel.value = state.opts.roleSet;
 roleSel.addEventListener("change", () => {
+  exploreRoleSet = roleSel.value;
   store.set("opts", { ...state.opts, roleSet: roleSel.value });
   player.setStart(HOLDINGS[ROLE_SETS[roleSel.value].holding]);
 });
@@ -162,12 +169,82 @@ for (const d of document.querySelectorAll("dialog.sd-dialog")) {
 transport.update(state);
 const timeline = mountTimeline(document.getElementById("timeline"), store, player);
 
+// ── Learn and Explore ──
+const sel0 = storage.get(SEL_KEY);
+const saved0 = sel0?.v === VERSION ? sel0 : null;
+let mode = saved0?.mode === "explore" ? "explore" : "learn";
+const sideEl = document.getElementById("side"), explorePanel = document.getElementById("explorePanel"), learnPanel = document.getElementById("learnPanel");
+const modeSeg = document.getElementById("modeSeg"), methodBox = document.getElementById("methodBox"), methodSel = document.getElementById("method");
+const mirrorSeg = document.getElementById("mirrorSeg"), tlEl = document.getElementById("timeline"), tlDock = document.getElementById("tlDock");
+const saveSel = (sel) => storage.set(SEL_KEY, { v: VERSION, mode, ...sel });
+for (const m of METHODS) methodSel.append(h("option", { value: m.id, text: m.name }));
+
+// ── the drawer (below 760 px the side panel is opened from the Menu button) ──
+const btnMenu = document.getElementById("btnMenu"), scrim = document.getElementById("scrim");
+const behind = ["stage", "strip"].map((id) => document.getElementById(id)).concat(document.querySelector(".bar"));
+function setDrawer(open) {
+  open = open && narrow.matches;
+  sideEl.toggleAttribute("data-open", open);
+  scrim.hidden = !open;
+  btnMenu.setAttribute("aria-expanded", String(open));
+  for (const el of behind) el.inert = open;
+  if (open) document.getElementById("btnDrawerX").focus();
+  else if (sideEl.contains(document.activeElement) || document.activeElement === document.body) btnMenu.focus({ preventScroll: true });
+}
+btnMenu.addEventListener("click", () => setDrawer(!sideEl.hasAttribute("data-open")));
+document.getElementById("btnDrawerX").addEventListener("click", () => setDrawer(false));
+scrim.addEventListener("click", () => setDrawer(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sideEl.hasAttribute("data-open") && !document.querySelector("dialog[open], :popover-open")) { setDrawer(false); e.preventDefault(); } });
+
+// the timeline sits in the panel (under the moves, or in the case's detail); on a phone, under the cube
+function placeTimeline() {
+  const home = narrow.matches ? tlDock : mode === "learn" ? learn.timelineSlot : document.getElementById("tlExplore");
+  if (tlEl.parentElement !== home) home.append(tlEl);
+}
+const learn = mountLearn({
+  root: learnPanel, side: sideEl, mirrorBtn: document.getElementById("btnMirror"), store, player, initial: saved0,
+  onSelect(sel) { methodSel.value = sel.method; saveSel(sel); },
+  onPick() { setDrawer(false); },
+});
+function setMode(next) {
+  mode = next;
+  clearTimeout(typing); // a half-typed box must not overwrite a lesson
+  const learning = mode === "learn";
+  for (const b of modeSeg.querySelectorAll("button")) b.setAttribute("aria-checked", String(b.dataset.mode === mode));
+  learnPanel.hidden = !learning;
+  explorePanel.hidden = learning;
+  methodBox.hidden = mirrorSeg.hidden = !learning;
+  sideEl.dataset.mode = mode;
+  if (learning) { sideEl.removeAttribute("aria-labelledby"); sideEl.setAttribute("aria-label", "Lessons"); }
+  else { sideEl.removeAttribute("aria-label"); sideEl.setAttribute("aria-labelledby", "movesTitle"); }
+  placeTimeline();
+  if (learning) {
+    host.removeAttribute("data-stale");
+    learn.activate();
+  } else {
+    learn.deactivate();
+    // back to the moves box, as the visitor left it
+    store.set("opts", { ...state.opts, roleSet: exploreRoleSet });
+    player.setStart(HOLDINGS[ROLE_SETS[exploreRoleSet].holding]);
+    player.setMoves([]);
+    readMoves();
+    drawError(state.error);
+  }
+  saveSel(learn.selection);
+}
+for (const b of modeSeg.querySelectorAll("button")) b.addEventListener("click", () => { if (b.dataset.mode !== mode) setMode(b.dataset.mode); });
+methodSel.addEventListener("change", () => learn.setMethod(methodSel.value));
+narrow.addEventListener("change", () => { setDrawer(false); placeTimeline(); });
+methodSel.value = learn.selection.method;
+setMode(mode);
+
 // ── every change, once per frame ──
 store.on((s, dirty) => {
   if (dirty.has("opts")) saveOptions();
   transport.update(s);
   timeline.update(s, dirty);
-  if (dirty.has("error")) drawError(s.error);
+  if (mode === "learn") learn.update(s);
+  if (dirty.has("error") && mode === "explore") drawError(s.error);
   for (const id in made) if (dock.isShown(id)) made[id].view.update?.(s, dirty);
 });
 onThemeChange(() => store.touch("theme"));
