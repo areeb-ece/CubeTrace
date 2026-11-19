@@ -18,6 +18,8 @@ import { createRequire } from "node:module";
 import { serve, ROOT, BASE_PATH } from "./serve.js";
 import { netLayout, netCell } from "../js/lib/layout2d.js";
 import { STICKERS } from "../js/palette.js";
+import { solved, stickers, kindOf } from "../js/lib/cube.js";
+import { facesAt } from "../js/lib/pieces.js";
 
 // Playwright from this folder's node_modules, or a machine-wide install.
 const { chromium } = await import("playwright").catch(() => createRequire(import.meta.url)("playwright"));
@@ -100,7 +102,7 @@ try {
     } else {
       assert.ok(await page.isVisible("#btnTheme"), "offline light/dark switch");
     }
-    assert.deepEqual(await openViews(page), ["cube", "net"]);
+    assert.deepEqual(await openViews(page), ["cube", "net", "ll"]);
     assert.equal(await page.$eval("#moves", (t) => t.value), "");
     assert.ok(await page.isHidden("#movesError"));
     assert.match(await page.getAttribute(CUBE, "aria-label"), /^Cube seen from the up, front and right faces$/);
@@ -140,6 +142,7 @@ try {
     await frame(page);
     assert.notEqual(await picture(page, CUBE), cubeBefore, "dragging turns the cube");
     await page.mouse.up();
+    await page.mouse.move(2, 2); // off the cube: a piece under the pointer would be outlined
     await page.waitForTimeout(900);
     await frame(page);
     assert.equal(await picture(page, CUBE), cubeBefore, "the cube springs back");
@@ -153,7 +156,7 @@ try {
     assert.notEqual(await picture(page, CUBE), cubeBefore, "letters change the cube");
     await page.uncheck("#optMirrors");
     await frame(page);
-    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("cubetrace.options"))), { v: 1, letters: true, mirrors: false, spring: true, speed: 1 });
+    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("cubetrace.options"))), { v: 1, letters: true, mirrors: false, spring: true, speed: 1, roleSet: "all", full: false, netChange: false });
     await page.keyboard.press("Escape");
     await shot(page, `laptop-letters-${design ? "shared" : "offline"}`);
     await clean("laptop");
@@ -164,13 +167,13 @@ try {
 
     // panels: close one, reopen from the View menu, and the layout survives a reload
     await page.click('[data-key="close:net"]');
-    assert.deepEqual(await openViews(page), ["cube"]);
+    assert.deepEqual(await openViews(page), ["cube", "ll"]);
     await page.reload();
     await page.waitForSelector(".dk-stack");
-    assert.deepEqual(await openViews(page), ["cube"], "the layout is remembered");
+    assert.deepEqual(await openViews(page), ["cube", "ll"], "the layout is remembered");
     await page.click("#btnView");
     await page.click("#btnReset");
-    assert.deepEqual(await openViews(page), ["cube", "net"]);
+    assert.deepEqual(await openViews(page), ["cube", "net", "ll"]);
     await page.context().close();
   }
 
@@ -195,7 +198,7 @@ try {
   {
     const { page, clean } = await open({ width: 390, height: 844 }, null, { hasTouch: true });
     await typeMoves(page, "R U R' U'");
-    assert.deepEqual(await openViews(page), ["cube", "net"]);
+    assert.deepEqual(await openViews(page), ["cube", "net", "ll"]);
     const [cube, net, side] = await Promise.all([CUBE, NET, ".side"].map((s) => page.locator(s).boundingBox()));
     assert.ok(cube.height > 150 && net.height > 150 && cube.y < net.y && net.y < side.y, `a column: cube ${cube.y}, net ${net.y}, moves ${side.y}`);
     assert.ok(cube.width <= 390 && net.width <= 390 && side.width <= 390);
@@ -351,12 +354,125 @@ try {
     await page.context().close();
   }
 
+  // ── roles: what matters is in colour, the rest is grey ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 });
+    const LL = '.view[data-view="ll"] canvas';
+    assert.ok((await painted(page, LL)) > 1000, "the last-layer panel isn't blank");
+    assert.equal(await page.$eval("#roleSet", (s) => s.value), "all", "everything is shown by default");
+    assert.equal(await page.$$eval("#roleSet option", (o) => o.length), 12);
+    const grey = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--ink-4").trim());
+    const sameColour = async (face, row, col, want, what) => {
+      const [r, g, b, a] = await netColour(page, face, row, col), w = hex(want);
+      assert.ok(a === 255 && [r, g, b].every((v, i) => Math.abs(v - w[i]) <= 6), `${what}: ${face}${row}${col} is rgb(${r} ${g} ${b}), want ${want}`);
+    };
+
+    // the white cross: its four edges and the centres in colour, every other cell flat grey
+    await page.selectOption("#roleSet", "white-cross");
+    await frame(page);
+    for (const st of stickers(solved())) {
+      const mine = kindOf(st.id) === "centre" || (kindOf(st.id) === "edge" && facesAt(st.id).includes("U"));
+      await sameColour(st.face, st.row, st.col, mine ? STICKERS[st.home] : grey, "white cross");
+    }
+    await shot(page, "roles-white-cross");
+
+    // Full colour brings everything back, and it is remembered
+    await page.click("#btnFull");
+    await frame(page);
+    assert.equal(await page.getAttribute("#btnFull", "aria-pressed"), "true");
+    await sameColour("U", 0, 0, STICKERS.U, "full colour");
+    await sameColour("F", 2, 2, STICKERS.F, "full colour");
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("cubetrace.options")));
+    assert.equal(saved.full, true);
+    assert.equal(saved.roleSet, "white-cross");
+    await page.click("#btnFull");
+    await frame(page);
+    assert.equal(await page.getAttribute("#btnFull", "aria-pressed"), "false");
+    await sameColour("U", 0, 0, grey, "full colour off again");
+    await clean("white cross");
+
+    // F2L: the moves start yellow up; taking the pair out leaves holes, putting it back none
+    await page.selectOption("#roleSet", "f2l");
+    await frame(page);
+    await sameColour("U", 1, 1, STICKERS.D, "yellow up");
+    await sameColour("F", 1, 1, STICKERS.F, "green in front");
+    await typeMoves(page, "R U");
+    assert.ok(Number(await page.getAttribute(CUBE, "data-holes")) > 0, "holes on the cube");
+    assert.ok(Number(await page.getAttribute(NET, "data-holes")) > 0, "holes on the net");
+    await shot(page, "roles-f2l-ru");
+    await typeMoves(page, "R U U' R'");
+    assert.equal(await page.getAttribute(CUBE, "data-holes"), "0");
+    assert.equal(await page.getAttribute(NET, "data-holes"), "0");
+
+    // the live region says what happened to the pieces that matter (white cross: R carries the white-red edge)
+    await page.selectOption("#roleSet", "white-cross");
+    await typeMoves(page, "R");
+    await page.click("#btnBack");
+    await settle(page);
+    await page.click("#btnFwd");
+    await settle(page);
+    await page.waitForTimeout(400);
+    assert.equal(await page.$eval(".live", (e) => e.textContent), "R: the right face, clockwise. The white-red edge moves from up-right to back-right.");
+    await page.selectOption("#roleSet", "all");
+    await page.click("#btnBack");
+    await settle(page);
+    await page.click("#btnFwd");
+    await settle(page);
+    await page.waitForTimeout(400);
+    assert.equal(await page.$eval(".live", (e) => e.textContent), "R: the right face, clockwise.", "all pieces: only the move");
+
+    // the last-layer diagram: net change on and off
+    await page.selectOption("#roleSet", "oll");
+    await typeMoves(page, "R U R' U R U2 R'");
+    const follows = await picture(page, LL);
+    await page.click('.view[data-view="ll"] .ll-bar button');
+    await frame(page);
+    assert.equal(await page.getAttribute('.view[data-view="ll"] .ll-bar button', "aria-pressed"), "true");
+    assert.equal(await page.getAttribute(LL, "data-change"), "on");
+    assert.ok((await painted(page, LL)) > 1000);
+    assert.notEqual(await picture(page, LL), follows, "net change draws the start and the arrows");
+    assert.equal((await page.evaluate(() => JSON.parse(localStorage.getItem("cubetrace.options")))).netChange, true);
+    await shot(page, "roles-ll-net-change");
+    await page.click('.view[data-view="ll"] .ll-bar button');
+    await frame(page);
+    assert.equal(await page.getAttribute(LL, "data-change"), "off");
+    assert.equal(await picture(page, LL), follows, "off, it follows playback again");
+
+    // tracking: a click on the net follows that piece, another click lets go; so do the keys
+    await typeMoves(page, "R U");
+    const before = await picture(page, NET);
+    const size = await page.$eval(NET, (c) => [c.clientWidth, c.clientHeight]);
+    const c = netCell(netLayout(...size), "F", 0, 2), box = await page.locator(NET).boundingBox();
+    await page.mouse.click(box.x + c.x + c.size / 2, box.y + c.y + c.size / 2);
+    await frame(page);
+    assert.notEqual(await page.getAttribute(NET, "data-track"), "", "clicking a piece follows it");
+    assert.equal(await page.getAttribute(CUBE, "data-track"), await page.getAttribute(NET, "data-track"), "in every view");
+    assert.notEqual(await picture(page, NET), before, "its path and outline are drawn");
+    await shot(page, "roles-tracking");
+    await page.mouse.click(box.x + c.x + c.size / 2, box.y + c.y + c.size / 2);
+    await frame(page);
+    assert.equal(await page.getAttribute(NET, "data-track"), "", "clicking it again lets go");
+    await page.mouse.move(2, 2);
+    await page.focus(NET);
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await frame(page);
+    assert.notEqual(await page.getAttribute(NET, "data-track"), "", "the keys follow a piece too");
+    await clean("roles");
+
+    // the choice is remembered
+    await page.reload();
+    await page.waitForSelector(".dk-stack");
+    assert.equal(await page.$eval("#roleSet", (s) => s.value), "oll");
+    await page.context().close();
+  }
+
   // ── no storage (private mode, or blocked): everything still works, nothing is kept ──
   {
     const { page, clean } = await open({ width: 1280, height: 720 }, () => {
       Object.defineProperty(window, "localStorage", { get() { throw new DOMException("denied", "SecurityError"); } });
     });
-    assert.deepEqual(await openViews(page), ["cube", "net"]);
+    assert.deepEqual(await openViews(page), ["cube", "net", "ll"]);
     await typeMoves(page, "R");
     await assertSticker(page, "U", 0, 2, "F", "without storage");
     await page.click("#btnView");
@@ -373,7 +489,7 @@ try {
         localStorage.setItem("cubetrace.options", '{"v":1,"letters":"yes","mirrors":3}');
       } catch (e) { /* none */ }
     });
-    assert.deepEqual(await openViews(page), ["cube", "net"]);
+    assert.deepEqual(await openViews(page), ["cube", "net", "ll"]);
     assert.equal(await page.evaluate(() => [optLetters.checked, optMirrors.checked, optSpring.checked].join()), "false,true,true");
     await clean("with broken saved data");
     await page.context().close();

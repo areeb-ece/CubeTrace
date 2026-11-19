@@ -5,15 +5,16 @@ import { icon } from "./ui.js";
 const SPEEDS = [0.25, 0.5, 1, 2];
 export const isSpeed = (v) => SPEEDS.includes(v);
 
-export function mountTransport(strip, store, player, { onSpeed }) {
+export function mountTransport(strip, store, player, { onSpeed, onFull }) {
   const $ = (id) => strip.querySelector("#" + id);
-  const btnPlay = $("btnPlay"), btnBack = $("btnBack"), btnFwd = $("btnFwd"), btnChunk = $("btnChunk"), range = $("timeRange"), seg = $("speedSeg");
+  const btnPlay = $("btnPlay"), btnBack = $("btnBack"), btnFwd = $("btnFwd"), btnChunk = $("btnChunk"), btnFull = $("btnFull"), range = $("timeRange"), seg = $("speedSeg");
   btnBack.append(icon("prev"));
   btnFwd.append(icon("next"));
   btnBack.addEventListener("click", () => player.step(-1));
   btnFwd.addEventListener("click", () => player.step(1));
   btnPlay.addEventListener("click", () => player.toggle());
   btnChunk.addEventListener("click", () => player.playChunk());
+  btnFull.addEventListener("click", () => onFull());
   range.addEventListener("input", () => player.seek(Number(range.value)));
   for (const b of seg.querySelectorAll("button")) b.addEventListener("click", () => onSpeed(Number(b.dataset.speed)));
 
@@ -36,6 +37,7 @@ export function mountTransport(strip, store, player, { onSpeed }) {
     }
     btnBack.disabled = none || index + t <= 0;
     btnFwd.disabled = none || index >= n;
+    btnFull.setAttribute("aria-pressed", String(!!s.opts.full));
     strip.toggleAttribute("data-busy", !!s.busy);
     for (const b of seg.querySelectorAll("button")) b.setAttribute("aria-checked", String(Number(b.dataset.speed) === speed));
   }

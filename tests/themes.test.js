@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BODY, STICKERS, LETTERS, inkOn } from "../js/palette.js";
+import { BODY, STICKERS, LETTERS, inkOn, keptColour } from "../js/palette.js";
+import { contrast, deltaE } from "../js/lib/colour.js";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const css = fs.readFileSync(path.join(ROOT, "assets/design/tokens.css"), "utf8");
@@ -21,21 +22,6 @@ function themes() {
   }
   return out;
 }
-const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-const lum = (hex) => rgb(hex).reduce((n, c, k) => n + lin(c) * [0.2126, 0.7152, 0.0722][k], 0);
-const contrast = (a, b) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
-
-// sRGB → CIELAB (D65), and the plain distance between two colours in it
-function lab(hex) {
-  const [r, g, b] = rgb(hex).map(lin);
-  const xyz = [(0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047, 0.2126 * r + 0.7152 * g + 0.0722 * b, (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883];
-  const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
-  const [fx, fy, fz] = xyz.map(f);
-  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
-}
-const deltaE = (a, b) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]));
-
 // role → token, read from js/palette.js so the test follows the code
 const roles = Object.fromEntries([...palette.matchAll(/^\s+(\w+): "(--c\d)",/gm)].map((m) => [m[1], m[2]]));
 
@@ -80,3 +66,20 @@ test("letters are one per colour and readable on their sticker", () => {
   assert.equal(new Set(Object.values(LETTERS)).size, 6);
   for (const [face, hex] of Object.entries(STICKERS)) assert.ok(contrast(inkOn(hex), hex) >= 4.5, `${face}: letter on ${hex}`);
 });
+
+// Roles (PLAN.md section 6): a kept piece's sticker is its colour quieted toward the sheet,
+// an ignored one is the theme's --ink-4. Both must stay readable on the plastic and tell
+// the stickers apart, whatever the theme.
+for (const [name, vars] of Object.entries(themes())) {
+  test(`kept and ignored stickers hold up in the ${name} theme`, () => {
+    const kept = Object.fromEntries(Object.entries(STICKERS).map(([face, hex]) => [face, keptColour(hex, vars["--sheet"])]));
+    const faces = Object.keys(kept);
+    for (const f of faces) assert.ok(contrast(kept[f], BODY) >= 3, `kept ${f} ${kept[f]} on the body: ${contrast(kept[f], BODY).toFixed(2)}:1`);
+    for (const a of faces) for (const b of faces) {
+      if (a < b) assert.ok(deltaE(kept[a], kept[b]) >= 15, `kept ${a} and ${b}: ΔE ${deltaE(kept[a], kept[b]).toFixed(1)}`);
+    }
+    const grey = vars["--ink-4"];
+    assert.ok(contrast(grey, BODY) >= 1.6, `ignored grey ${grey} on the body: ${contrast(grey, BODY).toFixed(2)}:1`);
+    for (const [f, hex] of Object.entries(STICKERS)) assert.ok(deltaE(grey, hex) >= 20, `ignored grey ${grey} and ${f}: ΔE ${deltaE(grey, hex).toFixed(1)}`);
+  });
+}

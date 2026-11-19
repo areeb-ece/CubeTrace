@@ -1,11 +1,13 @@
 // The cube in 3D: Canvas 2D, painted from lib/scene.js's polygons (PLAN.md D2).
 // paintCube draws and nothing else; mountCube adds the canvas, dragging to orbit and the
 // spring back.
-import { buildScene, cameraBasis, turnGuides, hull, DEFAULT_CAMERA } from "../lib/scene.js";
+import { buildScene, cameraBasis, turnGuides, hull, pick, ghostEdges, DEFAULT_CAMERA } from "../lib/scene.js";
 import { move, moveText } from "../lib/moves.js";
-import { BODY, STICKERS, LETTERS, inkOn } from "../palette.js";
+import { BODY, STICKERS, LETTERS } from "../palette.js";
 import { tokenMs } from "../timing.js";
 import { mountCanvas } from "./canvas.js";
+import { hatch, dashed } from "./draw.js";
+import { look, stickerFill, letterInk, outlines } from "./stickers.js";
 
 const MARGIN = 0.92; // how much of the panel the cube and its panes may fill
 
@@ -69,20 +71,33 @@ function drawGuides(ctx, pal, tg, at, faint) {
   ctx.restore();
 }
 
+// Scene units → pixels, for a panel of w × h: the same for drawing and for picking.
+function fit(w, h, mirrors) {
+  const [ex, ey] = extent(mirrors);
+  const k = Math.min((w / 2) * MARGIN / ex, (h / 2) * MARGIN / ey);
+  return { k, at: ([x, y]) => [w / 2 + x * k, h / 2 + y * k] };
+}
+
+/** The piece under pixel (x, y) of a w × h panel (the cube or a mirror pane's copy of it), or null. */
+export function pieceAt(state, o, w, h, x, y) {
+  const mirrors = !!o.mirrors, { k } = fit(w, h, mirrors);
+  const polys = buildScene(state, { camera: o.camera || DEFAULT_CAMERA, turn: o.turn, mirrors });
+  return pick(polys, (x - w / 2) / k, (y - h / 2) / k, ["sticker", "body", "mirror", "mirror-body"])?.id ?? null;
+}
+
 /**
- * g = { ctx, w, h, pal }, o = { camera, mirrors, letters, turn, guide }.
+ * g = { ctx, w, h, pal }, o = { camera, mirrors, letters, turn, guide, look }.
+ * look: stickers.js's look(): roles, hatching, ghosts and outlines. Without it every sticker is in full colour.
  * guide: { move, t, faint } draws the turn anatomy of that move over the cube.
  */
 export function paintCube(g, state, o = {}) {
   const { ctx, w, h, pal } = g;
-  const mirrors = !!o.mirrors;
-  const polys = buildScene(state, { camera: o.camera || DEFAULT_CAMERA, turn: o.turn, mirrors });
-  const [ex, ey] = extent(mirrors);
-  const k = Math.min((w / 2) * MARGIN / ex, (h / 2) * MARGIN / ey);
-  const at = ([x, y]) => [w / 2 + x * k, h / 2 + y * k];
+  const mirrors = !!o.mirrors, lk = o.look, camera = o.camera || DEFAULT_CAMERA;
+  const polys = buildScene(state, { camera, turn: o.turn, mirrors });
+  const { at } = fit(w, h, mirrors);
   ctx.save();
   ctx.lineJoin = "round";
-  const bodyPts = [], paneFaces = {};
+  const bodyPts = [], paneFaces = {}, bodies = new Map();
   // the panes' frames go on before the cube, which covers whatever of them it hides
   let framed = false;
   const frames = () => {
@@ -92,11 +107,11 @@ export function paintCube(g, state, o = {}) {
     ctx.lineWidth = 1;
     for (const pts of Object.values(paneFaces)) { path(ctx, hull(pts)); ctx.stroke(); }
   };
-  const fillLetter = (p) => {
+  const fillLetter = (p, ink) => {
     const q = p.pts.map(at), cx = (q[0][0] + q[2][0]) / 2, cy = (q[0][1] + q[2][1]) / 2;
     const side = Math.sqrt(Math.abs((q[1][0] - q[0][0]) * (q[3][1] - q[0][1]) - (q[1][1] - q[0][1]) * (q[3][0] - q[0][0])));
     if (side < 10) return;
-    ctx.fillStyle = inkOn(STICKERS[p.home]);
+    ctx.fillStyle = ink;
     ctx.font = `700 ${side * 0.55}px ${pal.mono}`;
     ctx.fillText(LETTERS[p.home], cx, cy);
   };
@@ -116,17 +131,38 @@ export function paintCube(g, state, o = {}) {
       ctx.stroke();
       if (p.kind === "body") bodyPts.push(...pts);
       else (paneFaces[p.face] ||= []).push(...pts);
+      if (lk) { if (!bodies.has(p.id)) bodies.set(p.id, []); bodies.get(p.id).push(pts); }
     } else {
+      const st = lk ? stickerFill(pal, lk, p.id, p.home) : { fill: STICKERS[p.home], grey: false };
       path(ctx, pts);
-      ctx.fillStyle = STICKERS[p.home];
+      ctx.fillStyle = st.fill;
       ctx.fill();
-      if (o.letters) fillLetter(p);
+      const ink = o.letters ? letterInk(st) : null;
+      if (ink) fillLetter(p, ink);
+      if (lk?.away.has(p.id)) {
+        const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+        hatch(ctx, pal, () => path(ctx, pts), [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+        ctx.globalAlpha = mirror ? 0.85 : 1;
+      }
     }
   }
   ctx.globalAlpha = 1;
   if (!framed) frames();
   if (bodyPts.length) { ctx.strokeStyle = pal.ink3; path(ctx, hull(bodyPts)); ctx.stroke(); }
-  if (o.guide) drawGuides(ctx, pal, turnGuides(state, o.guide.move, o.guide.t, o.camera || DEFAULT_CAMERA), at, o.guide.faint);
+  if (lk) {
+    // ghosts: the boxes that kept pieces left, dashed where they show on the cube's skin
+    for (const hole of lk.holes) {
+      dashed(ctx, pal, () => { for (const e of ghostEdges(hole.pos, camera)) if (e.visible) { const [a, b] = [at(e.a), at(e.b)]; ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); } });
+    }
+    // then the outlines, over everything, round each piece's visible body faces
+    ctx.lineJoin = "round";
+    for (const { id, color, width } of outlines(pal, lk)) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      for (const pts of bodies.get(id) || []) { path(ctx, pts); ctx.stroke(); }
+    }
+  }
+  if (o.guide) drawGuides(ctx, pal, turnGuides(state, o.guide.move, o.guide.t, camera), at, o.guide.faint);
   ctx.restore();
 }
 
@@ -143,7 +179,7 @@ const PITCH_MAX = (80 * Math.PI) / 180;
 const SPEED = 0.008; // radians of turn per pixel dragged
 
 export function mountCube(el, store) {
-  const view = mountCanvas(el, store, (g, s) => paintCube(g, s.shown.state, { camera: s.camera, mirrors: s.opts.mirrors, letters: s.opts.letters, turn: s.shown.turn, guide: s.guide }), describeView(store.state.camera));
+  const view = mountCanvas(el, store, (g, s) => paintCube(g, s.shown.state, { camera: s.camera, mirrors: s.opts.mirrors, letters: s.opts.letters, turn: s.shown.turn, guide: s.guide, look: look(s, s.shown.state) }), describeView(store.state.camera));
   const { canvas } = view;
   canvas.style.setProperty("touch-action", "none");
   canvas.style.setProperty("cursor", "grab");
@@ -170,8 +206,30 @@ export function mountCube(el, store) {
     raf = requestAnimationFrame(step);
   }
 
+  // Brushing and tracking: the piece under the pointer is outlined everywhere, and a click
+  // (a press that didn't turn the cube) follows it.
+  const under = (e) => {
+    const r = canvas.getBoundingClientRect(), s = store.state;
+    return pieceAt(s.shown.state, { camera: s.camera, mirrors: s.opts.mirrors, turn: s.shown.turn }, r.width, r.height, e.clientX - r.left, e.clientY - r.top);
+  };
+  let press = null;
+  canvas.addEventListener("pointermove", (e) => {
+    if (e.buttons) return;
+    const id = under(e);
+    if (store.state.hover !== id) store.set("hover", id);
+  });
+  canvas.addEventListener("pointerleave", () => { if (!press && store.state.hover != null) store.set("hover", null); });
+  canvas.addEventListener("pointerup", (e) => {
+    if (!press || e.button !== 0) return;
+    const moved = Math.hypot(e.clientX - press[0], e.clientY - press[1]);
+    press = null;
+    const id = moved < 4 ? under(e) : null;
+    if (id != null) store.set("track", store.state.track === id ? null : id);
+  });
+
   canvas.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
+    press = [e.clientX, e.clientY];
     settle();
     canvas.setPointerCapture(e.pointerId);
     canvas.style.setProperty("cursor", "grabbing");
@@ -196,6 +254,8 @@ export function mountCube(el, store) {
       if (dirty.has("camera")) view.setLabel(describeView(s.camera));
       // which move's anatomy is up, for anything that wants to know (and the browser check)
       canvas.dataset.guide = s.guide ? moveText(s.guide.move) : "";
+      canvas.dataset.holes = String(look(s, s.shown.state).holes.length);
+      canvas.dataset.track = s.track ?? "";
       canvas.toggleAttribute("data-faint", !!s.guide?.faint);
       view.draw();
     },

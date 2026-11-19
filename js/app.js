@@ -1,34 +1,42 @@
 // The shell: one shared state, the docking workspace, the View options and what is
 // remembered between visits. Each view is a module { id, title, mount }.
 import { createStore, ALL } from "./store.js";
-import { createDock, stack, row } from "./dock.js";
+import { createDock, stack, row, col } from "./dock.js";
 import { h, storage } from "./ui.js";
 import { onThemeChange } from "./palette.js";
-import { solved } from "./lib/cube.js";
+import { HOLDINGS, ROLE_SETS } from "./lib/roles.js";
+import { trace } from "./lib/trace.js";
 import { parse, NotationError } from "./lib/notation.js";
 import { DEFAULT_CAMERA } from "./lib/scene.js";
 import cube from "./views/cube.js";
 import net from "./views/net.js";
+import ll from "./views/ll.js";
+import { ROLE_NAMES } from "./views/stickers.js";
 import { createPlayer } from "./player.js";
 import { mountTransport, isSpeed } from "./transport.js";
 import { mountKeys } from "./keys.js";
 import { mountPrimer } from "./primer.js";
 import { TYPING_DEBOUNCE } from "./timing.js";
 
-const VIEWS = [cube, net];
+const VIEWS = [cube, net, ll];
 const OPTIONS_KEY = "cubetrace.options", LAYOUT_KEY = "cubetrace.layout", SEEN_KEY = "cubetrace.primerSeen", VERSION = 1;
-const DEFAULT_LAYOUT = () => row([0.62, 0.38], stack("cube"), stack("net"));
+const DEFAULT_LAYOUT = () => row([0.55, 0.45], stack("cube"), col([0.6, 0.4], stack("net"), stack("ll")));
 
 // ── what is remembered: the options, validated ──
 function restoreOptions() {
   const o = storage.get(OPTIONS_KEY), ok = o && o.v === VERSION && typeof o === "object";
   const flag = (v, d) => (ok && typeof v === "boolean" ? v : d);
-  return { letters: flag(o?.letters, false), mirrors: flag(o?.mirrors, true), spring: flag(o?.spring, true), speed: ok && isSpeed(o?.speed) ? o.speed : 1 };
+  return {
+    letters: flag(o?.letters, false), mirrors: flag(o?.mirrors, true), spring: flag(o?.spring, true), speed: ok && isSpeed(o?.speed) ? o.speed : 1,
+    roleSet: ok && typeof o.roleSet === "string" && Object.hasOwn(ROLE_SETS, o.roleSet) ? o.roleSet : "all", full: flag(o?.full, false), netChange: flag(o?.netChange, false),
+  };
 }
 
 const opts = restoreOptions();
+const start = HOLDINGS[ROLE_SETS[opts.roleSet].holding];
 const store = createStore({
-  moves: "", state: solved(), shown: { state: solved(), turn: null }, guide: null, busy: false,
+  moves: "", start, trace: trace(start, []), state: start, shown: { state: start, turn: null }, guide: null, busy: false,
+  hover: null, track: null, // a piece (cubie id) brushed by the pointer or keys, and one being followed
   play: { index: 0, t: 0, playing: false, speed: opts.speed }, seq: { n: 0, chunks: [] },
   error: null, camera: { ...DEFAULT_CAMERA }, opts,
 });
@@ -101,6 +109,15 @@ function drawError(err) {
   host.toggleAttribute("data-stale", !!err);
 }
 
+// ── what to show: the role set, and so the cube the moves start from ──
+const roleSel = document.getElementById("roleSet");
+for (const [id, name] of Object.entries(ROLE_NAMES)) roleSel.append(h("option", { value: id, text: name }));
+roleSel.value = state.opts.roleSet;
+roleSel.addEventListener("change", () => {
+  store.set("opts", { ...state.opts, roleSet: roleSel.value });
+  player.setStart(HOLDINGS[ROLE_SETS[roleSel.value].holding]);
+});
+
 // ── the View menu ──
 const pop = document.getElementById("viewPop"), btnView = document.getElementById("btnView");
 const checks = { letters: document.getElementById("optLetters"), mirrors: document.getElementById("optMirrors"), spring: document.getElementById("optSpring") };
@@ -108,7 +125,6 @@ for (const [key, input] of Object.entries(checks)) {
   input.checked = state.opts[key];
   input.addEventListener("change", () => {
     store.set("opts", { ...state.opts, [key]: input.checked });
-    saveOptions();
   });
 }
 pop.addEventListener("toggle", (e) => {
@@ -124,7 +140,8 @@ document.getElementById("btnReset").addEventListener("click", () => { storage.re
 
 // ── the transport strip, the keys and the two dialogs ──
 const transport = mountTransport(document.getElementById("strip"), store, player, {
-  onSpeed(v) { player.setSpeed(v); store.set("opts", { ...state.opts, speed: v }); saveOptions(); },
+  onSpeed(v) { player.setSpeed(v); store.set("opts", { ...state.opts, speed: v }); },
+  onFull() { store.set("opts", { ...state.opts, full: !state.opts.full }); },
 });
 const callout = document.getElementById("primerCallout");
 const seen = () => { storage.set(SEEN_KEY, true); callout.hidden = true; };
@@ -144,6 +161,7 @@ transport.update(state);
 
 // ── every change, once per frame ──
 store.on((s, dirty) => {
+  if (dirty.has("opts")) saveOptions();
   transport.update(s);
   if (dirty.has("error")) drawError(s.error);
   for (const id in made) if (dock.isShown(id)) made[id].view.update?.(s, dirty);

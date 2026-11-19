@@ -4,23 +4,24 @@
 // Published to the store:
 //   play   { index, t, playing, speed }
 //   seq    { n, chunks }                      (the moves' length and their chunks)
+//   start  the cube the moves are played from (the role set's holding); trace its states
 //   state  the cube the net shows: the state at the start of the move being turned
 //   shown  { state, turn }                    what the 3D cube draws (turn: { move, t } or null)
 //   guide  { move, t, faint } or null         the turn anatomy to draw (faint: the next move, paused)
 // Typing sets the moves and shows the end state, paused. Stepping back animates the
 // inverse of the move before. With motion off (--dur-3 is 0) turns jump, and the guides
 // of the move just made stay up for a dwell instead.
-import { solved } from "./lib/cube.js";
 import { trace } from "./lib/trace.js";
 import { inverseMove } from "./lib/moves.js";
 import { autoChunks } from "./lib/structure.js";
 import { turnMs, dwellMs, tween, boundaries, nextStop, prevStop } from "./timing.js";
-import { announce, describeMove } from "./announce.js";
+import { roles } from "./lib/roles.js";
+import { announce, describeMove, describeMoved } from "./announce.js";
 
 const EPS = 1e-9;
 
 export function createPlayer(store) {
-  let moves = [], tr = trace(solved(), []), chunks = [], stops = [0];
+  let moves = [], tr = store.state.trace, chunks = [], stops = [0];
   let cancel = null, aim = 0, holdTimer = 0, hold = null, dir = 1;
   const play = () => store.state.play;
   const n = () => moves.length;
@@ -52,7 +53,11 @@ export function createPlayer(store) {
     if (cancel) { cancel(); cancel = null; if (snap) setPos(aim); }
     clearHold();
   }
-  const say = (m) => announce(describeMove(m));
+  // The move, then what it did to the pieces that matter (index i of the trace's steps; back: undone)
+  const say = (m, i, back) => {
+    const changes = (tr.steps[i] || []).map((c) => (back ? { ...c, from: c.to, to: c.from } : c));
+    announce(describeMove(m) + describeMoved(changes, roles(store.state.opts.roleSet)));
+  };
 
   // Move to integer index `target` (one move away): animated, or a jump that holds the guides.
   function glide(target, done) {
@@ -60,11 +65,11 @@ export function createPlayer(store) {
     const from = pos(), d = target - from, ms = turnMs(play().speed) * Math.abs(d);
     if (Math.abs(d) < EPS) { done?.(); return; }
     dir = d < 0 ? -1 : 1;
-    const made = dir > 0 ? moves[target - 1] : inverseMove(moves[target]);
+    const back = dir < 0, made = back ? inverseMove(moves[target]) : moves[target - 1];
     if (!ms) {
       setPos(target);
       hold = made;
-      say(made);
+      say(made, back ? target : target - 1, back);
       holdTimer = setTimeout(() => { holdTimer = 0; hold = null; publish(); done?.(); }, dwellMs(play().speed));
       publish();
       return;
@@ -73,7 +78,7 @@ export function createPlayer(store) {
     cancel = tween(ms, (e) => setPos(from + d * e), () => {
       cancel = null;
       setPos(target);
-      say(made);
+      say(made, back ? target : target - 1, back);
       done?.();
     });
     publish();
@@ -97,11 +102,21 @@ export function createPlayer(store) {
     setMoves(list) {
       halt(false);
       moves = list;
-      tr = trace(solved(), moves);
+      tr = trace(store.state.start, moves);
+      store.set("trace", tr);
       chunks = autoChunks(moves);
       stops = boundaries(chunks, n());
       store.set("seq", { n: n(), chunks });
       store.patch("play", { index: n(), t: 0, playing: false });
+      publish();
+    },
+    /** Play the same moves from another cube (a different holding), staying where we are in them. */
+    setStart(start) {
+      halt(true);
+      store.set("start", start);
+      tr = trace(start, moves);
+      store.set("trace", tr);
+      store.set("state", tr.states[play().index]);
       publish();
     },
     /** Moves with one more on the end: stay at the old end, then turn the new move. */

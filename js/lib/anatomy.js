@@ -10,7 +10,8 @@ const FACES = "UDLRFB";
 // (grid position, face) → the net position of that sticker
 const SLOT = new Map();
 for (const face of FACES) for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) SLOT.set(posIndex(gridOf(face, row, col)) + face, { face, row, col });
-const slotOf = (p, face) => SLOT.get(p + face);
+/** The net position { face, row, col } of the sticker at grid position p facing `face`. */
+export const slotOf = (p, face) => SLOT.get(p + face);
 const faceAxis = (face) => NORMALS[face].findIndex((v) => v);
 
 /**

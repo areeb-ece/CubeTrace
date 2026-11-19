@@ -150,3 +150,25 @@ test("parser: refusals say where and what to type", () => {
   assert.throws(() => P("R'2"), /R2/);
   assert.throws(() => P("X"), /lower case/);
 });
+
+import { topLayerChange } from "../js/lib/trace.js";
+import { HOLDINGS } from "../js/lib/roles.js";
+
+test("the top layer's net change: a U turn is two 4-cycles; a Sune is one corner 3-cycle's twists", () => {
+  const start = HOLDINGS.yellowUp;
+  const u = topLayerChange(start, applyMoves(start, parseMoves("U")));
+  assert.deepEqual(u.cycles.map((c) => [c.kind, c.ps.length]).sort(), [["corner", 4], ["edge", 4]]);
+  assert.deepEqual(u.marks, []);
+  // U2 is two swaps of each kind
+  const u2 = topLayerChange(start, applyMoves(start, parseMoves("U2")));
+  assert.deepEqual(u2.cycles.map((c) => c.ps.length), [2, 2, 2, 2]);
+  // Sune: the top layer's corners twist and cycle; its edges are left alone
+  const sune = topLayerChange(start, applyMoves(start, parseMoves("R U R' U R U2 R'")));
+  assert.ok(sune.marks.length >= 3 && sune.marks.every((m) => m.kind === "corner"), JSON.stringify(sune.marks));
+  assert.ok(sune.marks.every((m) => m.twist === 1 || m.twist === 2));
+  // a sequence that does nothing changes nothing
+  assert.deepEqual(topLayerChange(start, start), { cycles: [], marks: [] });
+  // an edge flip marks the edge (M2' style flips aside, f R f' flips UF and more): any edge mark has twist 1
+  const flip = topLayerChange(start, applyMoves(start, parseMoves("F U F'")));
+  for (const m of flip.marks) assert.ok(m.kind === "edge" ? m.twist === 1 : m.twist === 1 || m.twist === 2);
+});

@@ -60,6 +60,11 @@
         <p id="errorText"></p>
         <pre class="where" id="errorWhere" aria-hidden="true"></pre>
       </div>
+      <div class="sd-field">
+        <label class="sd-label" for="roleSet">Show</label>
+        <span class="sd-select"><select id="roleSet" aria-describedby="roleHint"></select></span>
+        <p class="sd-hint" id="roleHint">Greyed pieces don't matter for this step. Where the step calls for it, the moves start with yellow up and green in front.</p>
+      </div>
     </aside>
 
     <main class="stage" id="stage" data-sky>
@@ -80,6 +85,7 @@
       <button type="button" role="radio" data-speed="1" aria-checked="true">1×</button>
       <button type="button" role="radio" data-speed="2" aria-checked="false">2×</button>
     </div>
+    <div class="sd-seg" id="fullSeg"><button type="button" id="btnFull" aria-pressed="false" title="Show every sticker in full colour; outlines stay">Full colour</button></div>
     <button class="sd-btn sd-small" type="button" id="btnChunk" title="Play to the end of this chunk">Play chunk</button>
   </div>
 </div>
