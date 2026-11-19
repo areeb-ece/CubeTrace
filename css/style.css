@@ -74,10 +74,21 @@ code, pre { font-family: var(--font-mono); }
 
 .work { flex: 1; display: flex; min-height: 0; }
 
+/* ── the transport strip, on the ground under the stage (local) ── */
+.strip { flex: none; display: flex; align-items: center; gap: var(--sp-3); padding: 0 var(--sp-4) var(--sp-3) var(--sp-5); background: var(--bg); }
+.strip .grp { display: flex; gap: var(--sp-1); }
+.strip .sd-range { flex: 1 1 10rem; min-width: 6rem; }
+.strip .sd-btn svg { display: block; margin: auto; }
+
+/* The live region: heard, not seen (local). */
+.live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
 /* ── the side panel: where the moves are typed (local) ── */
 .side { flex: none; width: 20rem; display: grid; align-content: start; gap: var(--sp-3); padding: var(--sp-4); margin: 0 0 var(--gap) var(--gap); border-radius: var(--r); background: var(--sheet); overflow: auto; overscroll-behavior: contain; }
 .side h2 { font: var(--fw-head) var(--fs-3)/1.3 var(--font-text); }
 .side .sd-textarea { min-height: 9em; }
+.side .sd-callout { display: grid; gap: var(--sp-2); }
+.side .sd-callout .acts { display: flex; gap: var(--sp-2); }
 .side .where { margin: var(--sp-2) 0 0; overflow-x: auto; font-size: var(--fs-1); color: var(--ink-2); white-space: pre; }
 
 .stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; isolation: isolate; }
@@ -128,8 +139,24 @@ code, pre { font-family: var(--font-mono); }
 .pop:popover-open { display: grid; }
 .pop .sd-btn { justify-self: start; }
 
+/* ── dialogs: the keys, and the notation primer (local) ── */
+.keys { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-2) var(--sp-4); margin: var(--sp-3) 0 0; align-items: baseline; }
+.keys dt { white-space: nowrap; }
+.keys dd { margin: 0; color: var(--ink-2); }
+.primer { width: min(46rem, calc(100vw - 2 * var(--sp-4))); }
+.primer .sd-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--sp-3); }
+.pcard { display: grid; align-content: start; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-radius: var(--r); background: var(--sheet-2); }
+.pcard:first-child { grid-column: 1 / -1; }
+.pcard h3 { font: var(--fw-head) var(--fs-3)/1.3 var(--font-mono); }
+.pcard:first-child h3 { font-family: var(--font-text); }
+.pcard p { color: var(--ink-2); }
+.pcube { position: relative; height: 11rem; border-radius: var(--r-sm); background: var(--bg); overflow: hidden; display: flex; }
+.pplay { display: grid; gap: var(--sp-1); }
+.prow { display: flex; gap: var(--sp-1); }
+
 /* ── views: each fills its panel ── */
 .view { position: absolute; inset: 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.view:focus-visible { outline-offset: calc(-1 * var(--ring-w)); }
 .view canvas { display: block; }
 .plot { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .plot > canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
@@ -143,10 +170,12 @@ code, pre { font-family: var(--font-mono); }
   .bar.sd-bar { padding: var(--sp-2) var(--sp-3); }
   .brand .by { display: none; }
   .work { flex-direction: column; }
+  /* the transport stays at the bottom of the screen while the page scrolls */
+  .strip { position: sticky; bottom: 0; z-index: var(--z-sticky); flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); }
   .stage { order: -1; flex: none; overflow: visible; }
   .side { width: auto; margin: 0 var(--gap) var(--sp-6); }
 }
 
 @media print {
-  .bar, .side, .dk-acts { display: none; }
+  .bar, .side, .dk-acts, .strip { display: none; }
 }

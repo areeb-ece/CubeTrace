@@ -74,3 +74,42 @@ test("mirror panes show the three hidden faces", () => {
   assert.deepEqual([...new Set(m.map((p) => p.face))].sort(), ["B", "D", "L"]);
   assert.ok(polys.findIndex((p) => p.kind === "body") > polys.findLastIndex((p) => p.kind.startsWith("mirror")), "painted before the cube");
 });
+
+// ── turn anatomy ──
+import { turnGuides, rotateAbout, moveAngle, hull, DEFAULT_CAMERA } from "../js/lib/scene.js";
+
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+test("the arrow runs the way the pieces turn, on the side of the face the move follows", () => {
+  const SIDE = { R: 1, L: -1, M: -1, U: 1, D: -1, E: -1, F: 1, B: -1, S: 1, x: 1, y: 1, z: 1, r: 1, l: -1 };
+  for (const text of ["R", "R'", "L", "L'", "M", "M'", "U", "D'", "E", "F", "B'", "S", "S'", "x", "y'", "z", "r", "l", "R2", "M2"]) {
+    const m = parseMoves(text)[0];
+    for (const camera of cameras.filter((_, i) => i % 7 === 0)) {
+      const g = turnGuides(scrambled, m, 0.3, camera);
+      const sign = Math.sign(moveAngle(m));
+      assert.equal(g.side, SIDE[m.name], `${text}: side`);
+      for (const p of g.arc3) assert.ok(Math.abs(p[m.axis] - g.side * 1.75) < 1e-9, `${text}: the arrow floats just outside the ${SIDE[m.name] > 0 ? "positive" : "negative"} face`);
+      for (let i = 0; i + 1 < g.arc3.length; i++) {
+        // a point advanced along the arc goes the way rotateAbout with the move's sign sends it
+        const a = g.arc3[i], b = g.arc3[i + 1], r = rotateAbout(a, m.axis, sign * 0.05);
+        assert.ok(dot3(sub3(r, a), sub3(b, a)) > 0, `${text}: arrow ${i} against the turn`);
+      }
+      assert.equal(g.heads.length, m.q === 2 ? 2 : 1, `${text}: arrowheads`);
+      assert.equal(g.double, m.q === 2);
+    }
+  }
+});
+
+test("the slab outline covers exactly the turning layers, and the axis passes through the cube", () => {
+  const g = turnGuides(solved(), parseMoves("R")[0], 0);
+  const xs = g.slab.map((p) => p[0]), full = turnGuides(solved(), parseMoves("x")[0], 0).slab.map((p) => p[0]);
+  assert.ok(Math.max(...xs) < Math.max(...full) + 1e-9 && Math.min(...xs) > Math.min(...full) - 1e-9, "R's slab lies inside the whole cube's outline");
+  assert.equal(g.slab.length, hull(g.slab).length, "a convex outline");
+  const [a, b] = g.axis, len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const cubeW = Math.max(...full) - Math.min(...full);
+  assert.ok(len > cubeW * 0.6, "the axis is longer than the cube is wide along it");
+  // partway through, the outline has turned (it differs from the resting one)
+  const mid = turnGuides(solved(), parseMoves("U")[0], 0.5, DEFAULT_CAMERA).slab.flat().join();
+  assert.notEqual(mid, turnGuides(solved(), parseMoves("U")[0], 0, DEFAULT_CAMERA).slab.flat().join());
+});

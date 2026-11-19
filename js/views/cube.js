@@ -1,8 +1,10 @@
 // The cube in 3D: Canvas 2D, painted from lib/scene.js's polygons (PLAN.md D2).
 // paintCube draws and nothing else; mountCube adds the canvas, dragging to orbit and the
 // spring back.
-import { buildScene, cameraBasis, DEFAULT_CAMERA } from "../lib/scene.js";
+import { buildScene, cameraBasis, turnGuides, hull, DEFAULT_CAMERA } from "../lib/scene.js";
+import { move, moveText } from "../lib/moves.js";
 import { BODY, STICKERS, LETTERS, inkOn } from "../palette.js";
+import { tokenMs } from "../timing.js";
 import { mountCanvas } from "./canvas.js";
 
 const MARGIN = 0.92; // how much of the panel the cube and its panes may fill
@@ -13,7 +15,10 @@ const reach = new Map();
 function extent(mirrors) {
   if (!reach.has(mirrors)) {
     let x = 0, y = 0;
-    for (const p of buildScene(solvedProbe(), { camera: DEFAULT_CAMERA, mirrors })) for (const [px, py] of p.pts) { x = Math.max(x, Math.abs(px)); y = Math.max(y, Math.abs(py)); }
+    const grow = (pts) => { for (const [px, py] of pts) { x = Math.max(x, Math.abs(px)); y = Math.max(y, Math.abs(py)); } };
+    for (const p of buildScene(solvedProbe(), { camera: DEFAULT_CAMERA, mirrors })) grow(p.pts);
+    // the turn guides reach past the cube, and must not be cut off by the panel
+    for (const name of "RLUDFBMES") { const g = turnGuides(null, move(name), 0, DEFAULT_CAMERA); grow(g.axis); grow(g.arc); }
     reach.set(mirrors, [x, y]);
   }
   return reach.get(mirrors);
@@ -25,29 +30,48 @@ function solvedProbe() {
   return { pos, ori };
 }
 
-function hull(points) {
-  const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-  const half = (list) => {
-    const out = [];
-    for (const q of list) {
-      while (out.length > 1 && cross(out[out.length - 2], out[out.length - 1], q) <= 0) out.pop();
-      out.push(q);
-    }
-    out.pop();
-    return out;
-  };
-  return half(p).concat(half(p.slice().reverse()));
-}
-
 function path(ctx, pts) {
   ctx.beginPath();
   pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
   ctx.closePath();
 }
 
+// The turn anatomy: the turning slab outlined over a wash of the accent, the axis it
+// turns about, and an arrow showing the way (haloed so it reads over plastic and sky).
+// faint is the next move shown while paused.
+function drawGuides(ctx, pal, tg, at, faint) {
+  const k = faint ? 0.45 : 1;
+  const poly = (pts) => { path(ctx, pts.map(at)); };
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  poly(tg.slab);
+  ctx.fillStyle = pal.alpha("accent", 0.18 * k);
+  ctx.fill();
+  ctx.strokeStyle = pal.alpha("accent", k);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.beginPath();
+  tg.axis.map(at).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.setLineDash([6, 5]);
+  ctx.strokeStyle = pal.alpha("ink3", 0.9 * k);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const shaft = () => { ctx.beginPath(); tg.arc.map(at).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };
+  for (const [color, width, a] of [[pal.alpha("bg", 0.75 * k), 6, 1], [pal.alpha("ink", k), 2.5, 1]]) {
+    shaft();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.stroke();
+    for (const hd of tg.heads) { path(ctx, hd.map(at)); ctx.fillStyle = color; ctx.fill(); ctx.stroke(); }
+  }
+  ctx.restore();
+}
+
 /**
- * g = { ctx, w, h, pal }, o = { camera, mirrors, letters, turn }.
+ * g = { ctx, w, h, pal }, o = { camera, mirrors, letters, turn, guide }.
+ * guide: { move, t, faint } draws the turn anatomy of that move over the cube.
  */
 export function paintCube(g, state, o = {}) {
   const { ctx, w, h, pal } = g;
@@ -102,6 +126,7 @@ export function paintCube(g, state, o = {}) {
   ctx.globalAlpha = 1;
   if (!framed) frames();
   if (bodyPts.length) { ctx.strokeStyle = pal.ink3; path(ctx, hull(bodyPts)); ctx.stroke(); }
+  if (o.guide) drawGuides(ctx, pal, turnGuides(state, o.guide.move, o.guide.t, o.camera || DEFAULT_CAMERA), at, o.guide.faint);
   ctx.restore();
 }
 
@@ -117,18 +142,16 @@ export function describeView(camera) {
 const PITCH_MAX = (80 * Math.PI) / 180;
 const SPEED = 0.008; // radians of turn per pixel dragged
 
-// the token's duration in ms ("180ms" or ".2s"), or 0
-function tokenMs(name) {
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const n = parseFloat(v);
-  return Number.isFinite(n) ? (v.endsWith("ms") ? n : n * 1000) : 0;
-}
-
 export function mountCube(el, store) {
-  const view = mountCanvas(el, store, (g, s) => paintCube(g, s.state, { camera: s.camera, mirrors: s.opts.mirrors, letters: s.opts.letters }), describeView(store.state.camera));
+  const view = mountCanvas(el, store, (g, s) => paintCube(g, s.shown.state, { camera: s.camera, mirrors: s.opts.mirrors, letters: s.opts.letters, turn: s.shown.turn, guide: s.guide }), describeView(store.state.camera));
   const { canvas } = view;
   canvas.style.setProperty("touch-action", "none");
   canvas.style.setProperty("cursor", "grab");
+  // The panel takes the keys (milestone 4): focus it, with a ring, and a click gives it focus.
+  el.tabIndex = 0;
+  el.setAttribute("role", "group");
+  el.setAttribute("aria-label", "Cube. Keys U D L R F B M E S x y z turn it; Space plays.");
+  canvas.addEventListener("pointerdown", () => el.focus({ preventScroll: true }));
   let raf = 0;
   const settle = () => cancelAnimationFrame(raf);
 
@@ -171,6 +194,9 @@ export function mountCube(el, store) {
   return {
     update(s, dirty) {
       if (dirty.has("camera")) view.setLabel(describeView(s.camera));
+      // which move's anatomy is up, for anything that wants to know (and the browser check)
+      canvas.dataset.guide = s.guide ? moveText(s.guide.move) : "";
+      canvas.toggleAttribute("data-faint", !!s.guide?.faint);
       view.draw();
     },
   };

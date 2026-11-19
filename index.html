@@ -34,6 +34,8 @@
       <a class="by" href="https://areeb-ece.github.io/" rel="noopener noreferrer">by areeb</a>
     </div>
     <span class="sd-grow"></span>
+    <button class="sd-btn sd-small" type="button" id="btnNotation" aria-haspopup="dialog">Notation</button>
+    <button class="sd-btn sd-small" type="button" id="btnKeys" aria-haspopup="dialog">Keys</button>
     <button class="sd-btn sd-small" type="button" id="btnView" popovertarget="viewPop" aria-haspopup="dialog" aria-expanded="false" aria-controls="viewPop">View</button>
     <span class="design-slot" data-design-settings></span>
     <button class="sd-btn sd-small theme" id="btnTheme" type="button" title="Switch between the dark and light sheet" hidden>Light</button>
@@ -41,6 +43,14 @@
 
   <div class="work">
     <aside class="side" aria-labelledby="movesTitle">
+      <div class="sd-callout" id="primerCallout" hidden>
+        <p>New to cube notation? Open the primer.</p>
+        <p class="sd-hint">Red and orange look alike to many people: View → Letters on stickers.</p>
+        <div class="acts">
+          <button class="sd-btn sd-small sd-primary" type="button" id="btnPrimerOpen">Open the primer</button>
+          <button class="sd-btn sd-small sd-ghost" type="button" id="btnPrimerDismiss">Dismiss</button>
+        </div>
+      </div>
       <h2 id="movesTitle">Moves</h2>
       <div class="sd-field">
         <textarea class="sd-textarea sd-mono" id="moves" rows="6" aria-labelledby="movesTitle" aria-describedby="movesHint movesError" placeholder="R U R' U'" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"></textarea>
@@ -56,7 +66,42 @@
       <div class="dock" id="dock" tabindex="-1"></div>
     </main>
   </div>
+
+  <div class="strip" id="strip" role="group" aria-label="Playback">
+    <div class="grp">
+      <button class="sd-btn sd-small sd-icon" type="button" id="btnBack" aria-label="Step back" title="Step back [←]"></button>
+      <button class="sd-btn sd-small sd-icon sd-primary" type="button" id="btnPlay" aria-label="Play" title="Play [Space]"></button>
+      <button class="sd-btn sd-small sd-icon" type="button" id="btnFwd" aria-label="Step forward" title="Step forward [→]"></button>
+    </div>
+    <input class="sd-range" id="timeRange" type="range" min="0" max="0" step="any" value="0" aria-label="Position in the moves">
+    <div class="sd-seg" id="speedSeg" role="radiogroup" aria-label="Playback speed">
+      <button type="button" role="radio" data-speed="0.25" aria-checked="false">¼×</button>
+      <button type="button" role="radio" data-speed="0.5" aria-checked="false">½×</button>
+      <button type="button" role="radio" data-speed="1" aria-checked="true">1×</button>
+      <button type="button" role="radio" data-speed="2" aria-checked="false">2×</button>
+    </div>
+    <button class="sd-btn sd-small" type="button" id="btnChunk" title="Play to the end of this chunk">Play chunk</button>
+  </div>
 </div>
+
+<dialog class="sd-dialog primer" id="primer" aria-labelledby="primerTitle">
+  <header><h2 id="primerTitle">Notation</h2><button class="sd-x" type="button" aria-label="Close">×</button></header>
+  <div class="sd-body"></div>
+</dialog>
+
+<dialog class="sd-dialog" id="keysDialog" aria-labelledby="keysTitle">
+  <header><h2 id="keysTitle">Keys</h2><button class="sd-x" type="button" aria-label="Close">×</button></header>
+  <div class="sd-body">
+    <p class="sd-hint">These work while the cube panel has focus, so typing in the moves box never turns the cube.</p>
+    <dl class="keys">
+      <dt><kbd class="sd-kbd">U</kbd> <kbd class="sd-kbd">D</kbd> <kbd class="sd-kbd">L</kbd> <kbd class="sd-kbd">R</kbd> <kbd class="sd-kbd">F</kbd> <kbd class="sd-kbd">B</kbd></dt><dd>Turn that face. Add <kbd class="sd-kbd">Shift</kbd> to turn it back.</dd>
+      <dt><kbd class="sd-kbd">M</kbd> <kbd class="sd-kbd">E</kbd> <kbd class="sd-kbd">S</kbd> <kbd class="sd-kbd">x</kbd> <kbd class="sd-kbd">y</kbd> <kbd class="sd-kbd">z</kbd></dt><dd>Slices and whole-cube rotations, the same way.</dd>
+      <dt><kbd class="sd-kbd">Space</kbd></dt><dd>Play or pause.</dd>
+      <dt><kbd class="sd-kbd">←</kbd> <kbd class="sd-kbd">→</kbd></dt><dd>Step back or forward.</dd>
+      <dt><kbd class="sd-kbd">[</kbd> <kbd class="sd-kbd">]</kbd></dt><dd>Previous or next chunk boundary.</dd>
+    </dl>
+  </div>
+</dialog>
 
 <!-- The tool's own options (PLAN.md D8). A popover, so Escape and a click elsewhere close it. -->
 <div class="pop" id="viewPop" popover="auto" role="dialog" aria-label="View">

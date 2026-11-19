@@ -29,6 +29,12 @@ export function rotateAbout(v, axis, angle) {
   return [x * c - y * s, x * s + y * c, z];
 }
 
+/** How far (signed, along the axis) the turning slab is lifted at progress t: outer slabs only. */
+export function liftOf(m, t) {
+  if (m.layers.length >= 3 || m.layers.includes(0)) return 0;
+  return LIFT * Math.sin(Math.PI * Math.min(1, Math.max(0, t))) * Math.sign(m.layers[0]);
+}
+
 /** The signed angle of a whole move, in radians. */
 export const moveAngle = (m) => (m.q === 3 ? -1 : m.q) * (Math.PI / 2);
 
@@ -59,12 +65,12 @@ export function buildScene(s, opts = {}) {
   const cam = cameraBasis(opts.camera || DEFAULT_CAMERA);
   const tm = opts.turn?.move, t = opts.turn?.t ?? 0;
   const angle = tm ? moveAngle(tm) * t : 0;
-  const lift = tm && tm.layers.length < 3 && !tm.layers.includes(0) ? LIFT * Math.sin(Math.PI * Math.min(1, Math.max(0, t))) : 0;
+  const lift = tm ? liftOf(tm, t) : 0;
   const inSlab = (id) => !!tm && tm.layers.includes(POS[s.pos[id]][tm.axis]);
   const place = (id, p) => {
     if (!inSlab(id)) return p;
     let q = rotateAbout(p, tm.axis, angle);
-    if (lift) q = add(q, scale(AXES[tm.axis], lift * Math.sign(tm.layers[0])));
+    if (lift) q = add(q, scale(AXES[tm.axis], lift));
     return q;
   };
   const dir = (id, n) => (inSlab(id) ? rotateAbout(n, tm.axis, angle) : n);
@@ -162,4 +168,77 @@ export function inside(pts, x, y) {
     if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) r = !r;
   }
   return r;
+}
+
+/** Convex hull of 2D points (Andrew's monotone chain), counter-clockwise on screen axes. */
+export function hull(points) {
+  const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (list) => {
+    const out = [];
+    for (const q of list) {
+      while (out.length > 1 && cr(out[out.length - 2], out[out.length - 1], q) <= 0) out.pop();
+      out.push(q);
+    }
+    out.pop();
+    return out;
+  };
+  return half(p).concat(half(p.slice().reverse()));
+}
+
+// ── turn anatomy ──
+// Which side of the cube a move's arrow sits on: the face the move follows (M follows L,
+// E follows D, S follows F; x like R, y like U, z like F; a wide move like its face).
+const FOLLOWS = { R: 1, L: -1, U: 1, D: -1, F: 1, B: -1, M: -1, E: -1, S: 1, x: 1, y: 1, z: 1, r: 1, l: -1, u: 1, d: -1, f: 1, b: -1 };
+const ARROW_SIDE = 1.75;  // the arrow's plane, just outside the face (the cube's half-width is 1.5)
+const ARROW_R = 1.25;     // the arrow's radius about the axis
+const ARROW_SWEEP = (260 * Math.PI) / 180;
+const ARROW_HEAD = 0.32;  // radians of arc the head covers
+const AXIS_REACH = 1.5 + 0.9;
+
+/**
+ * What a turn draws besides the cube, projected like buildScene's polygons:
+ *   slab   the outline of the turning layers (convex hull of their box, turned and lifted as in the scene)
+ *   axis   [[x, y], [x, y]]: the line the slab turns about, reaching 0.9 past the cube both ways
+ *   arc    the arrow's shaft; arc3 the same in world coordinates
+ *   heads  arrowhead triangles (two for a half turn); double: true for a half turn
+ *   side   +1 or -1: which side of the cube the arrow is on
+ * The arrow runs the way the pieces turn (rotateAbout with moveAngle's sign), and its
+ * gap is turned away from the camera so the visible part is whole.
+ */
+export function turnGuides(state, m, t = 0, camera = DEFAULT_CAMERA) {
+  const cam = cameraBasis(camera), ax = m.axis;
+  const flat = (p) => projectPoint(cam, p).slice(0, 2);
+  const e1 = AXES[(ax + 1) % 3], e2 = AXES[(ax + 2) % 3]; // e2 = axis × e1: positive turns go e1 → e2
+  const at = (a, b, c) => { const p = [0, 0, 0]; p[ax] = a; p[(ax + 1) % 3] = b; p[(ax + 2) % 3] = c; return p; };
+
+  const angle = moveAngle(m) * t, lift = liftOf(m, t);
+  const lo = Math.min(...m.layers) - HALF, hi = Math.max(...m.layers) + HALF, W = 3 * HALF;
+  const slab = hull([lo, hi].flatMap((a) => [-W, W].flatMap((b) => [-W, W].map((c) => {
+    const q = rotateAbout(at(a, b, c), ax, angle);
+    q[ax] += lift;
+    return flat(q);
+  }))));
+
+  const axis = [-AXIS_REACH, AXIS_REACH].map((a) => flat(at(a, 0, 0)));
+
+  const side = FOLLOWS[m.name], sgn = m.q === 3 ? -1 : 1;
+  const centre = scale(AXES[ax], side * ARROW_SIDE);
+  const radial = (phi) => add(scale(e1, Math.cos(phi)), scale(e2, Math.sin(phi)));
+  const onRing = (phi) => add(centre, scale(radial(phi), ARROW_R));
+  const away = scale(cam.eye, -1);
+  const au = dot(away, e1), av = dot(away, e2);
+  const gapAt = Math.hypot(au, av) < 1e-3 ? Math.PI / 2 : Math.atan2(av, au);
+  const gap = 2 * Math.PI - ARROW_SWEEP;
+  const phi0 = gapAt + sgn * (gap / 2), phiEnd = phi0 + sgn * ARROW_SWEEP;
+  const N = 48, phiBase = phiEnd - sgn * ARROW_HEAD;
+  const arc3 = [];
+  for (let k = 0; k <= N; k++) arc3.push(onRing(phi0 + ((phiBase - phi0) * k) / N));
+  const head = (phi) => {
+    const base = phi - sgn * ARROW_HEAD, r = radial(base);
+    return [onRing(phi), add(onRing(base), scale(r, 0.14)), add(onRing(base), scale(r, -0.14))].map(flat);
+  };
+  const heads = [head(phiEnd)];
+  if (m.q === 2) heads.push(head((phi0 + phiEnd) / 2));
+  return { slab, axis, arc: arc3.map(flat), arc3, heads, double: m.q === 2, side };
 }

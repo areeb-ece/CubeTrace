@@ -84,6 +84,8 @@ const painted = (page, sel) => page.$eval(sel, (cv) => {
 });
 const picture = (page, sel) => page.$eval(sel, (cv) => cv.toDataURL());
 const typeMoves = async (page, text) => { await page.fill("#moves", text); await page.waitForTimeout(350); await frame(page); };
+const settle = async (page) => { await frame(page); await page.waitForFunction(() => !document.getElementById("strip").hasAttribute("data-busy"), null, { timeout: 8000 }); await frame(page); };
+const VIEW = '.view[data-view="cube"]';
 const openViews = (page) => page.$$eval(".dk-stack", (els) => els.map((e) => e.dataset.view));
 
 let failed = false;
@@ -151,7 +153,7 @@ try {
     assert.notEqual(await picture(page, CUBE), cubeBefore, "letters change the cube");
     await page.uncheck("#optMirrors");
     await frame(page);
-    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("cubetrace.options"))), { v: 1, letters: true, mirrors: false, spring: true });
+    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("cubetrace.options"))), { v: 1, letters: true, mirrors: false, spring: true, speed: 1 });
     await page.keyboard.press("Escape");
     await shot(page, `laptop-letters-${design ? "shared" : "offline"}`);
     await clean("laptop");
@@ -198,6 +200,8 @@ try {
     assert.ok(cube.height > 150 && net.height > 150 && cube.y < net.y && net.y < side.y, `a column: cube ${cube.y}, net ${net.y}, moves ${side.y}`);
     assert.ok(cube.width <= 390 && net.width <= 390 && side.width <= 390);
     assert.ok((await painted(page, CUBE)) > 2000, "the cube is drawn on the phone");
+    const strip = await page.locator("#strip").boundingBox();
+    assert.ok(strip.y + strip.height <= 845 && strip.width <= 390, `the transport is pinned at the bottom: ${JSON.stringify(strip)}`);
     const themes = design ? [["night", "dark"], ["paper", "light"], ["console", "console"]] : [["night", "dark"], ["paper", "light"]];
     for (const [label, theme] of themes) {
       if (design) await page.evaluate((t) => window.SiteDesign.set({ theme: t }), theme);
@@ -206,6 +210,144 @@ try {
       await page.screenshot({ path: path.join(SHOTS, `390-${label}.png`), fullPage: true });
     }
     await clean("phone");
+    await page.context().close();
+  }
+
+
+  // ── playback: the strip, the keys, the guides ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 });
+    assert.ok(await page.isVisible("#strip"), "the transport strip");
+    assert.ok(await page.isDisabled("#btnPlay"), "nothing to play yet");
+    await typeMoves(page, "R U");
+    const end = await picture(page, NET);
+    assert.equal(await page.getAttribute(CUBE, "data-guide"), "", "paused at the end: no move is next");
+
+    // stepping back animates the inverse, twice: solved
+    await page.click("#btnBack");
+    await settle(page);
+    assert.equal(await page.getAttribute(CUBE, "data-guide"), "U", "paused at 1: the next move's guides");
+    assert.ok((await page.getAttribute(CUBE, "data-faint")) !== null, "…shown faintly");
+    await page.click("#btnBack");
+    await settle(page);
+    await assertSolvedNet(page, "stepped back twice");
+    assert.ok(await page.isDisabled("#btnBack"), "can't step back from the start");
+
+    // play: one chunk, so it runs to the end
+    await page.click("#btnPlay");
+    await settle(page);
+    assert.equal(await picture(page, NET), end, "playing R U ends on the R U state");
+    assert.equal(await page.getAttribute("#btnPlay", "aria-label"), "Play");
+
+    // the scrub: 0 is solved, 2 is the end, 0.5 is a turn partway with its guides
+    const scrub = async (v) => { await page.evaluate((v) => { const r = document.getElementById("timeRange"); r.value = v; r.dispatchEvent(new Event("input", { bubbles: true })); }, v); await frame(page); };
+    await scrub(0);
+    await assertSolvedNet(page, "scrubbed to 0");
+    const flat = await picture(page, CUBE);
+    await scrub(0.5);
+    assert.equal(await page.getAttribute(CUBE, "data-guide"), "R");
+    assert.equal(await page.getAttribute(CUBE, "data-faint"), null, "a turn in progress is not faint");
+    assert.notEqual(await picture(page, CUBE), flat, "a turn partway shows");
+    await shot(page, "guides-cube");
+    await scrub(2);
+    assert.equal(await picture(page, NET), end);
+
+    // speed is remembered
+    await page.click('#speedSeg [data-speed="2"]');
+    await frame(page);
+    assert.equal(await page.getAttribute('#speedSeg [data-speed="2"]', "aria-checked"), "true");
+    assert.equal((await page.evaluate(() => JSON.parse(localStorage.getItem("cubetrace.options")))).speed, 2);
+    await page.click('#speedSeg [data-speed="1"]');
+
+    // keys act only on the cube panel
+    await typeMoves(page, "");
+    await page.focus("#moves");
+    await page.keyboard.type("U");
+    await page.waitForTimeout(350);
+    assert.equal(await page.$eval("#moves", (t) => t.value), "U", "typing in the box doesn't turn the cube");
+    await typeMoves(page, "");
+    await page.focus(VIEW);
+    await page.keyboard.press("KeyR");
+    assert.match(await page.$eval("#moves", (t) => t.value), /R$/, "R appends R");
+    await settle(page);
+    for (let row = 0; row < 3; row++) await assertSticker(page, "U", row, 2, "F", "after the R key");
+    await page.keyboard.press("Shift+KeyR");
+    assert.match(await page.$eval("#moves", (t) => t.value), /R R'$/);
+    await settle(page);
+    await assertSolvedNet(page, "R then R'");
+    await page.keyboard.press("ArrowLeft");
+    await settle(page);
+    for (let row = 0; row < 3; row++) await assertSticker(page, "U", row, 2, "F", "stepped back to after R");
+    await page.keyboard.press("Space");
+    await settle(page);
+    await assertSolvedNet(page, "played on to the end");
+    assert.equal(await page.$eval(".live", (e) => e.getAttribute("aria-live")), "polite");
+
+    // the dialogs
+    assert.ok(await page.isVisible("#primerCallout"), "first visit: the primer is offered");
+    await page.click("#btnNotation");
+    assert.ok(await page.$eval("#primer", (d) => d.open));
+    assert.ok((await page.$$("#primer .pcard")).length >= 10, "a card for each part of the notation");
+    const mini = "#primer .pcard:nth-of-type(5) canvas";
+    await page.waitForTimeout(150);
+    assert.ok((await painted(page, mini)) > 500, "a card's cube is drawn");
+    await page.click("#primer .pcard:nth-of-type(5) .prow button >> nth=0");
+    await page.waitForTimeout(900);
+    assert.ok((await painted(page, mini)) > 500, "…and plays");
+    await shot(page, "primer");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.$eval("#primer", (d) => d.open), false, "Escape closes it");
+    assert.ok(await page.isHidden("#primerCallout"), "opening the primer ends the offer");
+    assert.equal(await page.evaluate(() => localStorage.getItem("cubetrace.primerSeen")), "true");
+    await page.click("#btnKeys");
+    assert.ok(await page.$eval("#keysDialog", (d) => d.open));
+    assert.ok((await page.$$("#keysDialog .sd-kbd")).length >= 10);
+    await page.keyboard.press("Escape");
+    await page.reload();
+    await page.waitForSelector(".dk-stack");
+    assert.ok(await page.isHidden("#primerCallout"), "and it stays ended");
+    await clean("playback");
+    await page.context().close();
+  }
+
+  // ── the net's arrows ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 });
+    await typeMoves(page, "R U");
+    await page.evaluate(() => { const r = document.getElementById("timeRange"); r.value = 0; r.dispatchEvent(new Event("input", { bubbles: true })); });
+    await frame(page);
+    await shot(page, "guides-net");
+    await clean("net arrows");
+    await page.context().close();
+  }
+
+  // ── motion off: jumps, but the guides stay up for a dwell ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 }, null, { reducedMotion: "reduce" });
+    await typeMoves(page, "R U");
+    await page.click("#btnBack");
+    await frame(page);
+    assert.equal(await page.getAttribute(CUBE, "data-guide"), "U'", "the move just undone is guided");
+    assert.equal(await page.getAttribute(CUBE, "data-faint"), null);
+    // (the D face: the guided U's arrows are all up on the other faces)
+    for (let row = 0; row < 3; row++) await assertSticker(page, "D", row, 2, "B", "jumped to after R");
+    await page.waitForTimeout(1000);
+    assert.equal(await page.getAttribute(CUBE, "data-guide"), "U", "then the next move, faint");
+    assert.notEqual(await page.getAttribute(CUBE, "data-faint"), null);
+    await page.click("#btnFwd");
+    await frame(page);
+    assert.equal(await page.getAttribute(CUBE, "data-guide"), "U");
+    assert.equal(await page.getAttribute(CUBE, "data-faint"), null);
+    await shot(page, "guides-reduced");
+    await page.waitForTimeout(1000);
+    assert.equal(await page.getAttribute(CUBE, "data-guide"), "", "at the end nothing is next");
+    // playing advances a move per dwell
+    await page.click("#btnBack");
+    await page.click("#btnBack");
+    await page.click("#btnPlay");
+    await page.waitForTimeout(3500);
+    assert.equal(await page.getAttribute("#btnPlay", "aria-label"), "Play");
+    await clean("motion off");
     await page.context().close();
   }
 

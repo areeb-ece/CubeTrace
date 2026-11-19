@@ -4,27 +4,37 @@ import { createStore, ALL } from "./store.js";
 import { createDock, stack, row } from "./dock.js";
 import { h, storage } from "./ui.js";
 import { onThemeChange } from "./palette.js";
-import { solved, applyMoves } from "./lib/cube.js";
+import { solved } from "./lib/cube.js";
 import { parse, NotationError } from "./lib/notation.js";
 import { DEFAULT_CAMERA } from "./lib/scene.js";
 import cube from "./views/cube.js";
 import net from "./views/net.js";
+import { createPlayer } from "./player.js";
+import { mountTransport, isSpeed } from "./transport.js";
+import { mountKeys } from "./keys.js";
+import { mountPrimer } from "./primer.js";
+import { TYPING_DEBOUNCE } from "./timing.js";
 
 const VIEWS = [cube, net];
-const OPTIONS_KEY = "cubetrace.options", LAYOUT_KEY = "cubetrace.layout", VERSION = 1;
+const OPTIONS_KEY = "cubetrace.options", LAYOUT_KEY = "cubetrace.layout", SEEN_KEY = "cubetrace.primerSeen", VERSION = 1;
 const DEFAULT_LAYOUT = () => row([0.62, 0.38], stack("cube"), stack("net"));
 
 // ── what is remembered: the options, validated ──
 function restoreOptions() {
   const o = storage.get(OPTIONS_KEY), ok = o && o.v === VERSION && typeof o === "object";
   const flag = (v, d) => (ok && typeof v === "boolean" ? v : d);
-  return { letters: flag(o?.letters, false), mirrors: flag(o?.mirrors, true), spring: flag(o?.spring, true) };
+  return { letters: flag(o?.letters, false), mirrors: flag(o?.mirrors, true), spring: flag(o?.spring, true), speed: ok && isSpeed(o?.speed) ? o.speed : 1 };
 }
 
+const opts = restoreOptions();
 const store = createStore({
-  moves: "", state: solved(), error: null, camera: { ...DEFAULT_CAMERA }, opts: restoreOptions(),
+  moves: "", state: solved(), shown: { state: solved(), turn: null }, guide: null, busy: false,
+  play: { index: 0, t: 0, playing: false, speed: opts.speed }, seq: { n: 0, chunks: [] },
+  error: null, camera: { ...DEFAULT_CAMERA }, opts,
 });
 const { state } = store;
+const player = createPlayer(store);
+const saveOptions = () => storage.set(OPTIONS_KEY, { v: VERSION, ...state.opts });
 
 // ── the workspace ──
 const host = document.getElementById("dock");
@@ -35,6 +45,7 @@ const dock = createDock(host, {
     if (!made[id]) {
       const el = h("div", { class: "view", "data-view": id });
       made[id] = { el, view: VIEWS.find((v) => v.id === id).mount(el, store) };
+      if (id === "cube") mountKeys(el, { turn: turnByKey, player });
     }
     return made[id].el;
   },
@@ -60,18 +71,28 @@ function where(text, at) {
   return `${from > start ? "…" : ""}${text.slice(from, to)}${to < end ? "…" : ""}\n${" ".repeat(at - from + (from > start ? 1 : 0))}^`;
 }
 let typing = 0;
-function readMoves() {
+// Reads the box. Good moves go to the player (typing shows the end state, paused; a
+// key press turns the new move); bad ones are reported and the last good state stays.
+function readMoves(then = "set") {
   const text = box.value;
   store.set("moves", text);
   try {
-    store.set("state", applyMoves(solved(), parse(text).moves));
+    const moves = parse(text).moves;
     store.set("error", null);
+    if (then === "append") player.append(moves); else player.setMoves(moves);
   } catch (e) {
     if (!(e instanceof NotationError)) throw e;
     store.set("error", { message: e.message, where: where(text, Math.min(e.at, text.length)) });
   }
 }
-box.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(readMoves, 150); });
+box.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(readMoves, TYPING_DEBOUNCE); });
+// A key turn writes the move on the end of the box (on a new line after a comment, which would swallow it).
+function turnByKey(text) {
+  clearTimeout(typing);
+  const v = box.value, last = v.slice(v.lastIndexOf("\n") + 1);
+  box.value = v + (last.includes("//") ? "\n" : v && !/\s$/.test(v) ? " " : "") + text;
+  readMoves("append");
+}
 function drawError(err) {
   errBox.hidden = !err;
   errText.textContent = err ? err.message : "";
@@ -87,7 +108,7 @@ for (const [key, input] of Object.entries(checks)) {
   input.checked = state.opts[key];
   input.addEventListener("change", () => {
     store.set("opts", { ...state.opts, [key]: input.checked });
-    storage.set(OPTIONS_KEY, { v: VERSION, ...state.opts });
+    saveOptions();
   });
 }
 pop.addEventListener("toggle", (e) => {
@@ -101,8 +122,29 @@ pop.addEventListener("toggle", (e) => {
 });
 document.getElementById("btnReset").addEventListener("click", () => { storage.remove(LAYOUT_KEY); dock.set(DEFAULT_LAYOUT()); pop.hidePopover(); });
 
+// ── the transport strip, the keys and the two dialogs ──
+const transport = mountTransport(document.getElementById("strip"), store, player, {
+  onSpeed(v) { player.setSpeed(v); store.set("opts", { ...state.opts, speed: v }); saveOptions(); },
+});
+const callout = document.getElementById("primerCallout");
+const seen = () => { storage.set(SEEN_KEY, true); callout.hidden = true; };
+callout.hidden = !!storage.get(SEEN_KEY);
+const primer = mountPrimer(document.getElementById("primer"), store, { onOpen: seen });
+document.getElementById("btnNotation").addEventListener("click", primer.open);
+document.getElementById("btnPrimerOpen").addEventListener("click", primer.open);
+document.getElementById("btnPrimerDismiss").addEventListener("click", seen);
+const keysDialog = document.getElementById("keysDialog");
+document.getElementById("btnKeys").addEventListener("click", () => keysDialog.showModal());
+// a click on the backdrop (the dialog element itself) or the × closes a dialog
+for (const d of document.querySelectorAll("dialog.sd-dialog")) {
+  d.querySelector(".sd-x").addEventListener("click", () => d.close());
+  d.addEventListener("click", (e) => { if (e.target === d) d.close(); });
+}
+transport.update(state);
+
 // ── every change, once per frame ──
 store.on((s, dirty) => {
+  transport.update(s);
   if (dirty.has("error")) drawError(s.error);
   for (const id in made) if (dock.isShown(id)) made[id].view.update?.(s, dirty);
 });

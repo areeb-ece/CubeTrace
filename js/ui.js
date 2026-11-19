@@ -32,6 +32,8 @@ export const clear = (el) => { el.replaceChildren(); return el; };
 const ICONS = {
   play: { d: "M8 5.5v13l11-6.5z", fill: true },
   pause: { d: "M8.5 5.5v13M15.5 5.5v13" },
+  prev: { d: "M7 5.5v13M18 5.5l-9 6.5 9 6.5z" },
+  next: { d: "M17 5.5v13M6 5.5l9 6.5-9 6.5z" },
   close: { d: "M6.5 6.5l11 11M17.5 6.5l-11 11" },
   max: { d: "M5 5h14v14H5z" },
   restore: { d: "M8.5 8.5H19V19H8.5zM5 15.5V5h10.5" },
