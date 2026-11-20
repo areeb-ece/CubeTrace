@@ -7,6 +7,7 @@ import { netLayout, netCell, netCells, cellAt, stepCell } from "../lib/layout2d.
 import { posIndex } from "../lib/rot.js";
 import { BODY } from "../palette.js";
 import { mountCanvas } from "./canvas.js";
+import { canvasName } from "../lib/describe.js";
 import { arrow } from "./draw.js";
 import { look, paintStickers, asking, guideOf } from "./stickers.js";
 import { trail, idAt } from "../lib/cells.js";
@@ -109,12 +110,12 @@ const trailOf = (s) => {
 /** What the page draws for store state s (cursor: the keyboard's sticker, if the net has focus). */
 export const netProps = (s, cursor = null) => ({ look: look(s, s.state), letters: s.opts.letters, guide: guideOf(s), trail: asking(s) ? null : trailOf(s), cursor });
 
-const NET_LABEL = "Net of the cube, unfolded: U above F, with L, F, R, B in a row and D below. Arrow keys move between stickers; Enter follows the piece, or in Predict chooses the slot.";
+const NET_HELP = "The cube unfolded: U above F, with L, F, R, B in a row and D below. Arrow keys move between stickers; Enter follows the piece, or in Predict chooses the slot.";
 
 /** api: { answer(pos, el) } names a slot (Predict). */
 export function mountNet(el, store, api = {}) {
   let cursor = null, focused = false;
-  const view = mountCanvas(el, store, (g, s) => paintNet(g, s.state, netProps(s, focused ? cursor : null)), NET_LABEL);
+  const view = mountCanvas(el, store, (g, s) => paintNet(g, s.state, netProps(s, focused ? cursor : null)), canvasName("Net", "", 0, 0, 0, NET_HELP));
   const { canvas } = view;
   // a canvas with its own keys: tell assistive tech it isn't a picture
   canvas.setAttribute("role", "application");
@@ -155,6 +156,7 @@ export function mountNet(el, store, api = {}) {
     e.preventDefault();
   });
   return {
+    relabel(name, s) { view.setLabel(canvasName("Net", name, s.play.index, s.play.t, s.seq.n, NET_HELP)); },
     update(s) {
       // moves change which piece the cursor is on
       if (focused) brush(idAt(s.state, cursor.face, cursor.row, cursor.col));

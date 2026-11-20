@@ -6,6 +6,7 @@
 //   { phase: "ask" | "play" | "shown" | "done", target, choice, answer, right, from, to, streak }
 // The streak lives in memory only: a visit is a session, and a wrong answer ends it.
 import { announce } from "./announce.js";
+import { block } from "./ui.js";
 import { roles } from "./lib/roles.js";
 import { units, pickTarget, judge, verdict, question } from "./lib/predict.js";
 
@@ -33,7 +34,7 @@ export function mountPredict({ bar, store, player, learn }) {
       set({ phase: "ask", target, choice: null, answer: null, right: null, from, to });
       bar.verdict(null);
       say(`${question(target)} Click its place on the cube or the net.`);
-      next.disabled = true;
+      block(next, "Answer the question first");
       next.textContent = "Next";
       return;
     }
@@ -41,7 +42,7 @@ export function mountPredict({ bar, store, player, learn }) {
     set({ phase: "done", target: null, choice: null, answer: null, right: null });
     bar.verdict(null);
     say("That was the whole case. Choose another, or go again.");
-    next.disabled = false;
+    block(next, "");
     next.textContent = "Again";
   }
   function begin() {
@@ -94,7 +95,7 @@ export function mountPredict({ bar, store, player, learn }) {
         const text = verdict(p.right, p.target, p.answer);
         bar.verdict(p.right);
         say(text);
-        next.disabled = false;
+        block(next, "");
         next.focus({ preventScroll: true });
       }
     },

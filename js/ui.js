@@ -107,3 +107,34 @@ export const storage = {
   set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* private mode, or full */ } },
   remove(key) { try { localStorage.removeItem(key); } catch (e) { /* same */ } },
 };
+
+/**
+ * Makes a radiogroup of buttons one tab stop: the checked one is in the Tab order, the
+ * arrow keys (and Home/End) move to a neighbour and choose it, as a native radio group does.
+ */
+export function rovingRadios(group) {
+  const radios = () => [...group.querySelectorAll('[role="radio"]:not(:disabled)')];
+  const sync = () => {
+    const all = radios(), on = all.find((b) => b.getAttribute("aria-checked") === "true") || all[0];
+    for (const b of all) b.tabIndex = b === on ? 0 : -1;
+  };
+  group.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const all = radios(), i = all.indexOf(document.activeElement);
+    const to = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: all.length - 1 }[e.key];
+    if (i < 0 || to == null) return;
+    const b = all[(to + all.length) % all.length];
+    b.focus();
+    b.click();
+    e.preventDefault();
+  });
+  new MutationObserver(sync).observe(group, { attributes: true, attributeFilter: ["aria-checked", "disabled"], subtree: true, childList: true });
+  sync();
+}
+
+/** A button that can't be used right now but stays reachable: aria-disabled, and title says why ("" to enable). */
+export function block(button, reason) {
+  button.setAttribute("aria-disabled", String(!!reason));
+  if (reason) button.title = reason; else button.removeAttribute("title");
+}
+export const isBlocked = (button) => button.getAttribute("aria-disabled") === "true";

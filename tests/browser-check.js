@@ -122,7 +122,7 @@ try {
     assert.deepEqual(await openViews(page), ["cube", "net", "ll"]);
     assert.equal(await page.$eval("#moves", (t) => t.value), "");
     assert.ok(await page.isHidden("#movesError"));
-    assert.match(await page.getAttribute(CUBE, "aria-label"), /^Cube seen from the up, front and right faces$/);
+    assert.match(await page.getAttribute(CUBE, "aria-label"), /^Cube: no moves yet\. Seen from the up, front and right faces\.$/);
     assert.equal(await page.getAttribute(CUBE, "role"), "img");
 
     // both canvases show a cube

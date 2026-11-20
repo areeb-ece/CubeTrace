@@ -1,7 +1,7 @@
 // "Save image": which views, how big, which sheet, and whether it is the position now (a
 // PNG) or the whole algorithm playing (a GIF). The preview is the picture itself, drawn
 // smaller by the same renderer.
-import { h, storage } from "../ui.js";
+import { h, storage, rovingRadios } from "../ui.js";
 import { renderFrame, planPicture, frameState, nowState } from "./render.js";
 import { histogramOf, buildPalette, GifWriter } from "../lib/gif.js";
 import { gifPlan, WIDTHS } from "../lib/picture.js";
@@ -37,6 +37,8 @@ export function createExporter({ store, title }) {
     const el = h("div", { class: "sd-seg", role: "radiogroup", "aria-label": label },
       options.map(([value, text]) => h("button", { type: "button", role: "radio", "data-v": value, on: { click: () => { set(value); changed(); } } }, text)));
     el.sync = () => { for (const b of el.children) b.setAttribute("aria-checked", String(b.dataset.v === get())); };
+    el.sync();
+    rovingRadios(el);
     return el;
   };
   const check = (label, get, set) => {
@@ -60,7 +62,8 @@ export function createExporter({ store, title }) {
   function build() {
     ui.views = VIEWS.map(([id, name]) => check(name,
       () => prefs.views.includes(id), (on) => { prefs.views = on ? prefs.views.concat(id) : prefs.views.filter((v) => v !== id); }));
-    ui.format = seg([["png", "PNG: this position"], ["gif", "GIF: the whole algorithm"]], () => prefs.format, (v) => (prefs.format = v), "Format");
+    ui.format = seg([["png", "PNG"], ["gif", "GIF"]], () => prefs.format, (v) => (prefs.format = v), "Format");
+    ui.formatNote = h("p", { class: "sd-hint", id: "exFormat" });
     ui.size = seg([["s", "S"], ["m", "M"], ["l", "L"]], () => prefs.size, (v) => (prefs.size = v), "Size");
     ui.theme = seg([["current", "This theme"], ["dark", "Night"], ["light", "Paper"]], () => prefs.theme, (v) => (prefs.theme = v), "Sheet");
     ui.transparent = check("See-through background", () => prefs.transparent, (on) => (prefs.transparent = on));
@@ -77,7 +80,7 @@ export function createExporter({ store, title }) {
       h("div", { class: "sd-body ex-grid" },
         h("div", { class: "ex-opts" },
           group("Views", ...ui.views),
-          group("Format", ui.format),
+          group("Format", ui.format, ui.formatNote),
           group("Size", ui.size),
           group("Sheet", ui.theme, ui.transparent),
           group("Show", ui.title)),
@@ -92,6 +95,7 @@ export function createExporter({ store, title }) {
   const none = () => !spec().views.length;
   function sync() {
     for (const el of [...ui.views, ui.format, ui.size, ui.theme, ui.transparent, ui.title]) el.sync();
+    ui.formatNote.textContent = prefs.format === "gif" ? "The whole algorithm playing, move by move." : "The position on screen now.";
     ui.save.textContent = prefs.format === "gif" ? "Save GIF" : "Save PNG";
     ui.save.setAttribute("aria-disabled", String(none() || !!busy));
     ui.save.title = none() ? "Tick at least one view" : "";

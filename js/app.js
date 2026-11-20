@@ -2,7 +2,7 @@
 // remembered between visits. Each view is a module { id, title, mount }.
 import { createStore, ALL } from "./store.js";
 import { createDock, stack, row, col } from "./dock.js";
-import { h, storage } from "./ui.js";
+import { h, storage, rovingRadios } from "./ui.js";
 import { onThemeChange } from "./palette.js";
 import { HOLDINGS, ROLE_SETS } from "./lib/roles.js";
 import { trace } from "./lib/trace.js";
@@ -73,7 +73,7 @@ const dock = createDock(host, {
     return made[id].el;
   },
   // a view that was off screen missed every change: tell it all of them
-  onShow: (id) => requestAnimationFrame(() => made[id]?.view.update?.(state, ALL)),
+  onShow: (id) => requestAnimationFrame(() => { made[id]?.view.update?.(state, ALL); relabel(); }),
   onChange: () => storage.set(LAYOUT_KEY, { v: VERSION, tree: dock.get() }),
 });
 const saved = storage.get(LAYOUT_KEY);
@@ -154,6 +154,8 @@ pop.addEventListener("toggle", (e) => {
   checks.letters.focus();
 });
 document.getElementById("btnReset").addEventListener("click", () => { storage.remove(LAYOUT_KEY); dock.set(DEFAULT_LAYOUT()); pop.hidePopover(); });
+
+for (const g of document.querySelectorAll("[role=radiogroup]")) rovingRadios(g);
 
 // ── the transport strip, the keys and the two dialogs ──
 const transport = mountTransport(document.getElementById("strip"), store, userPlayer, {
@@ -284,6 +286,12 @@ narrow.addEventListener("change", () => { setDrawer(false); placeTimeline(); });
 methodSel.value = learn.selection.method;
 setMode(mode);
 
+// The canvases' names follow the case and the position (accessible text, not displayed).
+function relabel() {
+  const name = mode === "explore" ? "" : learn.caseName;
+  for (const id in made) made[id].view.relabel?.(name, state);
+}
+
 // ── every change, once per frame ──
 store.on((s, dirty) => {
   if (dirty.has("opts")) saveOptions();
@@ -293,6 +301,7 @@ store.on((s, dirty) => {
   updateLedger(s);
   if (dirty.has("error") && mode === "explore") drawError(s.error);
   for (const id in made) if (dock.isShown(id)) made[id].view.update?.(s, dirty);
+  if (["play", "seq", "camera", "mode", "opts", "trace"].some((k) => dirty.has(k))) relabel();
 });
 onThemeChange(() => store.touch("theme"));
 // The letters are drawn in mononoki: draw again once it has loaded.

@@ -11,6 +11,7 @@ import { idAt } from "../lib/cells.js";
 import { BODY } from "../palette.js";
 import { h } from "../ui.js";
 import { mountCanvas } from "./canvas.js";
+import { canvasName } from "../lib/describe.js";
 import { arrow } from "./draw.js";
 import { look, paintStickers } from "./stickers.js";
 
@@ -121,13 +122,13 @@ export function llProps(s) {
   return { state, props: { look: look(s, state), letters: s.opts.letters, change: on ? topLayerChange(states[0], states[states.length - 1]) : null } };
 }
 
-const LABEL = "Last layer seen from above, front at the bottom: the up face and the side stickers of the top layer.";
+const LL_HELP = "Seen from above, front at the bottom: the up face and the side stickers of the top layer.";
 
 export function mountLL(el, store) {
   const toggle = h("button", { type: "button", "aria-pressed": "false", title: "Show the start of the moves and what they do to this layer, all at once", text: "Net change" });
   el.append(h("div", { class: "ll-bar" }, h("div", { class: "sd-seg" }, toggle)));
   toggle.addEventListener("click", () => store.set("opts", { ...store.state.opts, netChange: !store.state.opts.netChange }));
-  const view = mountCanvas(el, store, (g, s) => { const f = llProps(s); paintLL(g, f.state, f.props); }, LABEL);
+  const view = mountCanvas(el, store, (g, s) => { const f = llProps(s); paintLL(g, f.state, f.props); }, canvasName("Last layer", "", 0, 0, 0, LL_HELP));
   const { canvas } = view;
   const idUnder = (e) => {
     const s = store.state, r = canvas.getBoundingClientRect(), l = llLayout(r.width, r.height), x = e.clientX - r.left, y = e.clientY - r.top;
@@ -143,6 +144,7 @@ export function mountLL(el, store) {
   canvas.addEventListener("pointerleave", () => { if (store.state.hover != null) store.set("hover", null); });
   canvas.addEventListener("click", (e) => { const id = idUnder(e); if (id != null) store.set("track", store.state.track === id ? null : id); });
   return {
+    relabel(name, s) { view.setLabel(canvasName("Last layer", name, s.play.index, s.play.t, s.seq.n, LL_HELP + (s.opts.netChange ? " It shows the start of the moves and what they do to this layer." : ""))); },
     update(s) {
       toggle.setAttribute("aria-pressed", String(!!s.opts.netChange));
       canvas.dataset.change = s.opts.netChange ? "on" : "off";
