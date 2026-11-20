@@ -22,8 +22,6 @@ Cube Trace teaches the beginner method and CFOP by tracking pieces, not stickers
 
 Live at <https://areeb-ece.github.io/CubeTrace/>.
 
-<!-- TODO: confirm the live address responds once GitHub Pages is turned on for this repository. -->
-
 ## Screenshots
 
 ![Cube Trace in Learn mode: a CFOP F2L case partway through its algorithm, shown on the cube, the net and the last-layer diagram](./docs/images/screenshot.webp)
