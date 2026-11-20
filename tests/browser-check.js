@@ -32,6 +32,7 @@ import { units, pickTarget } from "../js/lib/predict.js";
 import { twistLedger } from "../js/lib/ledger.js";
 import { cellsAtPos } from "../js/lib/cells.js";
 import { posIndex } from "../js/lib/rot.js";
+import { gifPlan } from "../js/lib/picture.js";
 
 // Playwright from this folder's node_modules, or a machine-wide install.
 const { chromium } = await import("playwright").catch(() => createRequire(import.meta.url)("playwright"));
@@ -52,7 +53,7 @@ async function open(viewport, init, { learn, ...more } = {}) {
   const errors = [], outside = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-  page.on("request", (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith("data:")) outside.push(r.url()); });
+  page.on("request", (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith("data:") && !r.url().startsWith("blob:")) outside.push(r.url()); });
   await page.addInitScript(() => {
     window.__csp = [];
     document.addEventListener("securitypolicyviolation", (e) => window.__csp.push(e.violatedDirective + " " + e.blockedURI));
@@ -122,7 +123,7 @@ try {
     assert.deepEqual(await openViews(page), ["cube", "net", "ll"]);
     assert.equal(await page.$eval("#moves", (t) => t.value), "");
     assert.ok(await page.isHidden("#movesError"));
-    assert.match(await page.getAttribute(CUBE, "aria-label"), /^Cube seen from the up, front and right faces$/);
+    assert.match(await page.getAttribute(CUBE, "aria-label"), /^Cube: no moves yet\. Seen from the up, front and right faces\.$/);
     assert.equal(await page.getAttribute(CUBE, "role"), "img");
 
     // both canvases show a cube
@@ -983,6 +984,202 @@ try {
     await frame(page);
     assert.ok(await page.isHidden("#ledger"), "no other step has it");
     await clean("ledger");
+    await page.context().close();
+  }
+
+
+  // ── Save image: the dialog, a PNG and a GIF, and what they are drawn in ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 }, null, { learn: true });
+    await page.click('#learnPanel [data-step="second-layer"]');
+    await untilChips2(page, "z2");
+    await settle(page);
+    await page.click('#learnPanel .case[aria-label="Edge goes right"]');
+    await frame(page);
+    const r = resolve({ method: "beginner", step: "second-layer", case: (await page.getAttribute('#learnPanel .case[aria-label="Edge goes right"]', "data-case")) }, false);
+    await page.click("#btnImage");
+    await page.waitForSelector("dialog.export[open]");
+    const PREVIEW = ".export .ex-canvas";
+    assert.ok((await painted(page, PREVIEW)) > 3000, "the preview is drawn");
+    assert.equal(await page.getAttribute(PREVIEW, "role"), "img");
+    // the sheet: Night is dark and Paper is light, whatever the page is in
+    const corner = () => page.$eval(PREVIEW, (cv) => { const d = cv.getContext("2d").getImageData(2, 2, 1, 1).data; return [d[0], d[1], d[2], d[3]]; });
+    await page.click('.export [aria-label="Sheet"] [data-v="light"]');
+    await page.waitForTimeout(200);
+    assert.ok((await corner())[0] > 200, "the Paper sheet is light");
+    await page.click('.export [aria-label="Sheet"] [data-v="dark"]');
+    await page.waitForTimeout(200);
+    assert.ok((await corner())[0] < 80, "the Night sheet is dark");
+    await page.check('.export label:has-text("See-through background") input');
+    await page.waitForTimeout(200);
+    assert.equal((await corner())[3], 0, "a see-through picture has no background");
+    await page.uncheck('.export label:has-text("See-through background") input');
+    await page.click('.export [aria-label="Sheet"] [data-v="current"]');
+    // the file: a PNG at the chosen width
+    const read = async (dl) => (await import("node:fs")).readFileSync(await dl.path());
+    await page.click('.export [aria-label="Size"] [data-v="s"]');
+    await page.check('.export label:has-text("Last layer") input');
+    await page.waitForTimeout(200);
+    let [dl] = await Promise.all([page.waitForEvent("download"), page.click(".export footer .sd-primary")]);
+    assert.match(dl.suggestedFilename(), /^cube-trace-edge-goes-right\.png$/);
+    let bytes = await read(dl);
+    assert.equal(bytes.subarray(1, 4).toString(), "PNG");
+    assert.equal(bytes.readUInt32BE(16), 960, "a small PNG is 960 wide");
+    // the GIF: the whole algorithm, a few frames a turn
+    await page.click('.export [aria-label="Format"] [data-v="gif"]');
+    await page.waitForTimeout(150);
+    [dl] = await Promise.all([page.waitForEvent("download", { timeout: 90000 }), page.click(".export footer .sd-primary")]);
+    assert.match(dl.suggestedFilename(), /\.gif$/);
+    bytes = await read(dl);
+    assert.equal(bytes.subarray(0, 6).toString(), "GIF89a");
+    assert.equal(bytes.readUInt16LE(6), 480, "a small GIF is 480 wide");
+    let frames = 0;
+    for (let i = 0; i < bytes.length - 3; i++) if (bytes[i] === 0x21 && bytes[i + 1] === 0xf9 && bytes[i + 2] === 0x04) frames++;
+    assert.equal(frames, gifPlan(r.moves.length).length, "one frame for each moment of the algorithm");
+    // nothing ticked: Save says why it can't
+    for (const id of ["cube", "net", "ll"]) await page.uncheck(`.export label:has-text("${{ cube: "Cube", net: "Net", ll: "Last layer" }[id]}") input`);
+    assert.equal(await page.getAttribute(".export footer .sd-primary", "aria-disabled"), "true");
+    assert.match(await page.getAttribute(".export footer .sd-primary", "title"), /at least one view/);
+    await page.keyboard.press("Escape");
+    assert.ok(!(await page.$eval("dialog.export", (d) => d.open)), "Escape closes the save dialog");
+    await clean("save image");
+    await page.context().close();
+  }
+
+
+  // ── keyboard and names: an axe-like pass, without dependencies ──
+  {
+    // Every control a person can reach has a name; every canvas is a picture with a name or hidden.
+    const unnamed = (page) => page.evaluate(() => {
+      const visible = (el) => el.getClientRects().length > 0 && !el.closest("[hidden], [inert]") && getComputedStyle(el).visibility !== "hidden";
+      const nameOf = (el) => {
+        const by = el.getAttribute("aria-labelledby");
+        if (by) { const t = by.split(/\s+/).map((id) => document.getElementById(id)?.textContent || "").join(" ").trim(); if (t) return t; }
+        const al = el.getAttribute("aria-label");
+        if (al && al.trim()) return al.trim();
+        if (el.labels?.length) { const t = [...el.labels].map((l) => l.textContent).join(" ").trim(); if (t) return t; }
+        if (!["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName)) return el.textContent.trim();
+        return el.type === "button" || el.type === "submit" ? el.value : "";
+      };
+      const bad = [];
+      const q = 'button, input, select, textarea, summary, a[href], [role="tab"], [role="radio"], [role="separator"][tabindex], [tabindex]:not([tabindex="-1"]), canvas';
+      for (const el of document.querySelectorAll(q)) {
+        if (!visible(el)) continue;
+        const d = el.id ? "#" + el.id : el.tagName.toLowerCase() + (el.className && typeof el.className === "string" ? "." + el.className.split(" ")[0] : "");
+        if (el.tagName === "CANVAS") {
+          if (el.getAttribute("aria-hidden") === "true" || el.closest('[aria-hidden="true"]')) continue;
+          if (!["img", "application"].includes(el.getAttribute("role")) || !nameOf(el)) bad.push(d + " (canvas without a role and name)");
+        } else if (!nameOf(el)) bad.push(d);
+      }
+      return bad;
+    });
+    // Tab all the way round: focus only lands on things you can see, each shows a ring, and it comes back to the start.
+    const tabRound = async (page, what) => {
+      await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
+      const seen = [], ids = new Set();
+      for (let i = 0; i < 200; i++) {
+        await page.keyboard.press("Tab");
+        const measure = () => page.evaluate(() => {
+          const el = document.activeElement;
+          if (!el || el === document.body) return { body: true };
+          const cs = getComputedStyle(el), box = el.getBoundingClientRect();
+          el.__stop ??= (window.__stops = (window.__stops || 0) + 1);
+          return {
+            uid: el.__stop, id: el.id || el.className?.toString().split(" ")[0] || el.tagName,
+            shown: el.getClientRects().length > 0 && !el.closest("[hidden], [inert]") && cs.visibility !== "hidden" && box.width > 0 && box.height > 0,
+            ring: (cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0) || cs.boxShadow !== "none" || el.classList.contains("dk-gutter"),
+            onScreen: box.right > 0 && box.bottom > 0 && box.left < innerWidth && box.top < innerHeight,
+          };
+        });
+        let at = await measure();
+        if (at.body) { if (seen.length > 5) break; continue; } // focus left the page: it has come round
+        if (!at.onScreen) { await page.waitForTimeout(350); at = await measure(); } // the skip link slides in
+        if (ids.has(at.uid)) break; // back at the start
+        ids.add(at.uid);
+        assert.ok(at.shown, `${what}: focus landed on something hidden (${at.id})`);
+        assert.ok(at.ring, `${what}: no focus ring on ${at.id}`);
+        assert.ok(at.onScreen, `${what}: focus is off screen on ${at.id}`);
+        seen.push(at.id);
+      }
+      assert.ok(seen.length > 10 && seen.length < 190, `${what}: Tab goes round and doesn't trap focus (${seen.length} stops)`);
+      return seen;
+    };
+
+    const { page, clean } = await open({ width: 1440, height: 900 }, null, { learn: true });
+    assert.deepEqual(await unnamed(page), [], "Learn: every control has a name");
+    // the case grid is one tab stop, and the arrows move across it
+    assert.equal(await page.$$eval("#learnPanel .case", (b) => b.filter((x) => x.tabIndex === 0).length), 1, "the case grid is one tab stop");
+    const stops = await tabRound(page, "Learn");
+    assert.equal(stops.filter((id) => id === "case").length, 1, "Tab visits the case grid once");
+    await page.focus("#learnPanel .case[tabindex='0']");
+    const first = await page.evaluate(() => document.activeElement.dataset.case);
+    await page.keyboard.press("ArrowRight");
+    const second = await page.evaluate(() => [document.activeElement.dataset.case, document.activeElement.tabIndex]);
+    assert.notEqual(second[0], first, "the right arrow moves to the next case");
+    assert.equal(second[1], 0, "…and that case is now the tab stop");
+    await page.keyboard.press("ArrowDown");
+    assert.ok(await page.evaluate(() => document.activeElement.classList.contains("case")), "the down arrow stays in the grid");
+    await page.keyboard.press("Home");
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.case), await page.$eval("#learnPanel .case", (b) => b.dataset.case), "Home goes to the first case");
+    // a radiogroup is one tab stop, and the arrows choose
+    assert.equal(await page.$$eval("#speedSeg [role=radio]", (b) => b.filter((x) => x.tabIndex === 0).length), 1);
+    await page.focus('#speedSeg [aria-checked="true"]');
+    await page.keyboard.press("ArrowRight");
+    await frame(page);
+    assert.equal(await page.getAttribute('#speedSeg [data-speed="2"]', "aria-checked"), "true", "the arrow chooses the next speed");
+    await page.keyboard.press("ArrowLeft");
+    await frame(page);
+    // a name that follows the case and the position
+    await page.click('#learnPanel [data-step="second-layer"]');
+    await untilChips2(page, "z2");
+    await settle(page);
+    await page.click('#learnPanel .case[aria-label="Edge goes right"]');
+    await frame(page);
+    assert.match(await page.getAttribute(CUBE, "aria-label"), /^Cube: .+, before the first move\. Seen from/);
+    await page.click("#btnFwd");
+    await settle(page);
+    assert.match(await page.getAttribute(CUBE, "aria-label"), /^Cube: .+, before move 2 of \d+\./);
+    assert.match(await page.getAttribute(NET, "aria-label"), /^Net: .+, before move 2 of \d+\./);
+    assert.match(await page.getAttribute('.view[data-view="ll"] canvas', "aria-label"), /^Last layer: .+, before move 2 of \d+\./);
+    // Escape closes every dialog and the View popover
+    for (const [btn, dlg] of [["#btnKeys", "#keysDialog"], ["#btnNotation", "#primer"], ["#btnImage", "dialog.export"]]) {
+      await page.click(btn);
+      assert.ok(await page.$eval(dlg, (d) => d.open), `${btn} opens its dialog`);
+      assert.ok(await page.evaluate((d) => document.querySelector(d).contains(document.activeElement), dlg), `${btn}: focus moves into the dialog`);
+      await page.keyboard.press("Escape");
+      assert.ok(!(await page.$eval(dlg, (d) => d.open)), `Escape closes ${dlg}`);
+      assert.equal(await page.evaluate(() => document.activeElement?.id), btn.slice(1), `${btn}: focus comes back to the button`);
+    }
+    await page.click("#btnView");
+    assert.ok(await page.$eval("#viewPop", (p) => p.matches(":popover-open")));
+    await page.keyboard.press("Escape");
+    assert.ok(!(await page.$eval("#viewPop", (p) => p.matches(":popover-open"))), "Escape closes the View popover");
+    // Explore and Predict
+    await page.click('#modeSeg [data-mode="explore"]');
+    await frame(page);
+    assert.deepEqual(await unnamed(page), [], "Explore: every control has a name");
+    await tabRound(page, "Explore");
+    await page.click('#modeSeg [data-mode="predict"]');
+    await frame(page);
+    assert.deepEqual(await unnamed(page), [], "Predict: every control has a name");
+    assert.equal(await page.getAttribute("#pNext", "aria-disabled"), "true");
+    assert.match(await page.getAttribute("#pNext", "title"), /Answer/, "a blocked Next says why");
+    await tabRound(page, "Predict");
+    await clean("keyboard pass");
+    await page.context().close();
+  }
+  // the phone: the drawer's controls are named, and Escape closes the drawer
+  {
+    const { page, clean } = await open({ width: 390, height: 844 }, null, { learn: true });
+    await page.click("#btnMenu");
+    await frame(page);
+    assert.equal(await page.getAttribute("#btnMenu", "aria-expanded"), "true");
+    assert.ok(await page.evaluate(() => document.getElementById("side").contains(document.activeElement)), "focus moves into the drawer");
+    await page.keyboard.press("Escape");
+    await frame(page);
+    assert.equal(await page.getAttribute("#btnMenu", "aria-expanded"), "false", "Escape closes the drawer");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "btnMenu", "focus comes back to Menu");
+    await clean("phone keyboard");
     await page.context().close();
   }
 

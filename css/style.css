@@ -217,6 +217,25 @@ code, pre { font-family: var(--font-mono); }
 .pplay { display: grid; gap: var(--sp-1); }
 .prow { display: flex; gap: var(--sp-1); }
 
+/* ── saving a picture: the options beside a preview (local: the master has no such sheet) ── */
+.sd-dialog.export { width: min(60rem, calc(100vw - 2 * var(--sp-4))); }
+.ex-grid { display: grid; grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr); gap: var(--sp-5); align-items: start; }
+.ex-opts { display: grid; align-content: start; gap: var(--sp-4); max-height: min(64vh, 40rem); overflow: auto; overscroll-behavior: contain; padding: 2px var(--sp-2) 2px 2px; }
+.ex-opts .sd-seg { display: flex; }
+.ex-opts .sd-seg button { flex: 1 1 0; padding: 0 var(--sp-2); white-space: normal; height: auto; min-height: calc(var(--ctl-h) - 6px); }
+.ex-side { display: grid; gap: var(--sp-2); min-width: 0; }
+.ex-frame { display: grid; place-items: center; min-height: 12rem; padding: var(--sp-3); border-radius: var(--r); background: var(--well); }
+/* a see-through picture is shown over a chequerboard */
+.ex-frame[data-clear] { background: repeating-conic-gradient(var(--sheet-2) 0 25%, var(--hover) 0 50%) 0 0 / 18px 18px; }
+.ex-canvas { display: block; max-width: 100%; max-height: min(58vh, 36rem); border-radius: var(--r-sm); }
+.export > footer { align-items: center; }
+.export progress { flex: 1 1 8rem; height: 6px; accent-color: var(--accent); }
+.ex-status { flex: 1 1 12rem; margin: 0; font-size: var(--fs-1); color: var(--ink-2); }
+@media (max-width: 760px) {
+  .ex-grid { grid-template-columns: minmax(0, 1fr); }
+  .ex-opts { max-height: none; }
+}
+
 /* ── views: each fills its panel ── */
 .view { position: absolute; inset: 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .view:focus-visible { outline-offset: calc(-1 * var(--ring-w)); }

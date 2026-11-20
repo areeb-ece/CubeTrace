@@ -1,7 +1,7 @@
 // The Learn side panel: a method's steps, the step's cases as small pictures, and the
 // selected case's detail (its timeline is moved in by app.js). Picking a case loads it
 // into the player, paused at the start, and the goal is checked when it plays to the end.
-import { h, clear } from "./ui.js";
+import { h, clear, block } from "./ui.js";
 import { METHODS } from "./lib/content/index.js";
 import { HOLDINGS } from "./lib/roles.js";
 import { parse } from "./lib/notation.js";
@@ -97,7 +97,9 @@ export function mountLearn({ root, side, mirrorBtn, store, player, onSelect, onP
       concepts.append(h("article", { class: "concept" }, h("h3", { text: k.title }), h("p", { text: k.text }),
         h("div", { class: "chips" }, k.algs.map((alg) => {
           const target = caseForAlg(step, alg);
-          return h("button", { class: "sd-btn sd-small sd-mono", type: "button", text: alg, disabled: !target, on: { click: () => target && go({ ...cur, case: target.id }, true) } });
+          const chip = h("button", { class: "sd-btn sd-small sd-mono", type: "button", text: alg, on: { click: () => target && go({ ...cur, case: target.id }, true) } });
+          if (!target) block(chip, "No case in this step plays this algorithm");
+          return chip;
         }))));
     }
     clear(cases);
@@ -113,9 +115,37 @@ export function mountLearn({ root, side, mirrorBtn, store, player, onSelect, onP
     } else cases.append(grid(step.cases));
     markCase();
   }
+  // The case grid is one tab stop: the chosen case (or the first) is in the Tab order, and the
+  // arrow keys move between cases, across groups, as the timeline's chips do.
+  const caseButtons = () => [...cases.querySelectorAll(".case")];
+  const rove = (to) => { for (const b of caseButtons()) b.tabIndex = b === to ? 0 : -1; };
   function markCase() {
-    for (const b of cases.querySelectorAll(".case")) { if (b.dataset.case === cur.case) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current"); }
+    const all = caseButtons();
+    for (const b of all) { if (b.dataset.case === cur.case) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current"); }
+    rove(all.find((b) => b.dataset.case === cur.case) || all[0]);
   }
+  cases.addEventListener("focusin", (e) => { if (e.target.classList?.contains("case")) rove(e.target); });
+  cases.addEventListener("keydown", (e) => {
+    if (!e.target.classList?.contains("case") || e.ctrlKey || e.metaKey || e.altKey) return;
+    const all = caseButtons(), i = all.indexOf(e.target);
+    let to = null;
+    if (e.key === "ArrowRight") to = all[i + 1];
+    else if (e.key === "ArrowLeft") to = all[i - 1];
+    else if (e.key === "Home") to = all[0];
+    else if (e.key === "End") to = all.at(-1);
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      // the nearest row below or above, and in it the case closest across
+      const r = e.target.getBoundingClientRect(), down = e.key === "ArrowDown", cx = r.left + r.width / 2;
+      const rows = all.map((b) => ({ b, r: b.getBoundingClientRect() })).filter((c) => (down ? c.r.top >= r.bottom - 1 : c.r.bottom <= r.top + 1));
+      if (rows.length) {
+        const edge = down ? Math.min(...rows.map((c) => c.r.top)) : Math.max(...rows.map((c) => c.r.bottom));
+        const row = rows.filter((c) => Math.abs((down ? c.r.top : c.r.bottom) - edge) < 2);
+        to = row.reduce((a, c) => (Math.abs(c.r.left + c.r.width / 2 - cx) < Math.abs(a.r.left + a.r.width / 2 - cx) ? c : a)).b;
+      }
+    } else return;
+    e.preventDefault();
+    if (to) to.focus();
+  });
   function renderDetail() {
     const r = resolved;
     name.textContent = r.case.name;
@@ -205,6 +235,8 @@ export function mountLearn({ root, side, mirrorBtn, store, player, onSelect, onP
     /** The cube is being turned over between steps (what is loaded is not a case). */
     get turning() { return turning; },
     get selection() { return { ...cur }; },
+    /** The selected case's name, for the saved picture's title. */
+    get caseName() { return resolved?.case.name || ""; },
     /** Another method: its first case. */
     setMethod(id) { if (id !== cur.method) go(firstSel(id), true); },
     /** The panel is on screen: play the selected case. */

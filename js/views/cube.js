@@ -6,6 +6,7 @@ import { move, moveText } from "../lib/moves.js";
 import { BODY, STICKERS, LETTERS, inkOn } from "../palette.js";
 import { tokenMs } from "../timing.js";
 import { mountCanvas } from "./canvas.js";
+import { canvasName } from "../lib/describe.js";
 import { hatch, dashed, glyph, slotLine } from "./draw.js";
 import { look, stickerFill, letterInk, outlines, guideOf } from "./stickers.js";
 
@@ -185,13 +186,16 @@ export function paintCube(g, state, o = {}) {
   ctx.restore();
 }
 
+/** What the page draws for store state s: the one place that turns state into paintCube's options (the saved picture uses it too). */
+export const cubeProps = (s) => ({ camera: s.camera, mirrors: s.opts.mirrors, letters: s.opts.letters, turn: s.shown.turn, guide: guideOf(s), look: look(s, s.shown.state) });
+
 const FACE_WORD = { U: "up", D: "down", L: "left", R: "right", F: "front", B: "back" };
-/** Which faces face the camera, in words: "Cube seen from the up, front and right faces". */
+/** Which faces face the camera, in words: "Seen from the up, front and right faces." */
 export function describeView(camera) {
   const eye = cameraBasis(camera).eye;
   const n = { U: [0, 1, 0], D: [0, -1, 0], F: [0, 0, 1], B: [0, 0, -1], R: [1, 0, 0], L: [-1, 0, 0] };
   const words = Object.keys(n).filter((f) => n[f].reduce((s, v, i) => s + v * eye[i], 0) > 0).map((f) => FACE_WORD[f]);
-  return `Cube seen from the ${words.slice(0, -1).join(", ")}${words.length > 1 ? " and " : ""}${words.at(-1)} faces`;
+  return `Seen from the ${words.slice(0, -1).join(", ")}${words.length > 1 ? " and " : ""}${words.at(-1)} faces.`;
 }
 
 const PITCH_MAX = (80 * Math.PI) / 180;
@@ -200,7 +204,7 @@ const DRAG_MIN = 10; // px a press on a sticker must travel before it counts as 
 
 /** api: { turn(text) } writes a move (Explore's drags), { answer(pos) } names a slot (Predict's clicks). */
 export function mountCube(el, store, api = {}) {
-  const view = mountCanvas(el, store, (g, s) => paintCube(g, s.shown.state, { camera: s.camera, mirrors: s.opts.mirrors, letters: s.opts.letters, turn: s.shown.turn, guide: guideOf(s), look: look(s, s.shown.state) }), describeView(store.state.camera));
+  const view = mountCanvas(el, store, (g, s) => paintCube(g, s.shown.state, cubeProps(s)), "Cube");
   const { canvas } = view;
   canvas.style.setProperty("touch-action", "none");
   canvas.style.setProperty("cursor", "grab");
@@ -289,8 +293,9 @@ export function mountCube(el, store, api = {}) {
   });
 
   return {
+    /** The canvas's accessible name: the case, where in its moves the cube is, and which way it is turned. */
+    relabel(name, s) { view.setLabel(canvasName("Cube", name, s.play.index, s.play.t, s.seq.n, describeView(s.camera))); },
     update(s, dirty) {
-      if (dirty.has("camera")) view.setLabel(describeView(s.camera));
       // which move's anatomy is up, for anything that wants to know (and the browser check)
       canvas.dataset.guide = s.guide ? moveText(s.guide.move) : "";
       canvas.dataset.holes = String(look(s, s.shown.state).holes.length);
