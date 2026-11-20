@@ -185,6 +185,9 @@ export function paintCube(g, state, o = {}) {
   ctx.restore();
 }
 
+/** What the page draws for store state s: the one place that turns state into paintCube's options (the saved picture uses it too). */
+export const cubeProps = (s) => ({ camera: s.camera, mirrors: s.opts.mirrors, letters: s.opts.letters, turn: s.shown.turn, guide: guideOf(s), look: look(s, s.shown.state) });
+
 const FACE_WORD = { U: "up", D: "down", L: "left", R: "right", F: "front", B: "back" };
 /** Which faces face the camera, in words: "Cube seen from the up, front and right faces". */
 export function describeView(camera) {
@@ -200,7 +203,7 @@ const DRAG_MIN = 10; // px a press on a sticker must travel before it counts as 
 
 /** api: { turn(text) } writes a move (Explore's drags), { answer(pos) } names a slot (Predict's clicks). */
 export function mountCube(el, store, api = {}) {
-  const view = mountCanvas(el, store, (g, s) => paintCube(g, s.shown.state, { camera: s.camera, mirrors: s.opts.mirrors, letters: s.opts.letters, turn: s.shown.turn, guide: guideOf(s), look: look(s, s.shown.state) }), describeView(store.state.camera));
+  const view = mountCanvas(el, store, (g, s) => paintCube(g, s.shown.state, cubeProps(s)), describeView(store.state.camera));
   const { canvas } = view;
   canvas.style.setProperty("touch-action", "none");
   canvas.style.setProperty("cursor", "grab");

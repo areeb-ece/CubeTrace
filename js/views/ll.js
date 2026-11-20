@@ -114,18 +114,20 @@ export function paintLL(g, state, o = {}) {
   ctx.restore();
 }
 
+/** What the page draws for store state s: { state, props } for paintLL. */
+export function llProps(s) {
+  const states = s.trace.states, on = s.opts.netChange;
+  const state = on ? states[0] : s.state;
+  return { state, props: { look: look(s, state), letters: s.opts.letters, change: on ? topLayerChange(states[0], states[states.length - 1]) : null } };
+}
+
 const LABEL = "Last layer seen from above, front at the bottom: the up face and the side stickers of the top layer.";
 
 export function mountLL(el, store) {
   const toggle = h("button", { type: "button", "aria-pressed": "false", title: "Show the start of the moves and what they do to this layer, all at once", text: "Net change" });
   el.append(h("div", { class: "ll-bar" }, h("div", { class: "sd-seg" }, toggle)));
   toggle.addEventListener("click", () => store.set("opts", { ...store.state.opts, netChange: !store.state.opts.netChange }));
-  const frame = (s) => {
-    const states = s.trace.states, on = s.opts.netChange;
-    const state = on ? states[0] : s.state;
-    return { state, look: look(s, state), change: on ? topLayerChange(states[0], states[states.length - 1]) : null };
-  };
-  const view = mountCanvas(el, store, (g, s) => { const f = frame(s); paintLL(g, f.state, { look: f.look, letters: s.opts.letters, change: f.change }); }, LABEL);
+  const view = mountCanvas(el, store, (g, s) => { const f = llProps(s); paintLL(g, f.state, f.props); }, LABEL);
   const { canvas } = view;
   const idUnder = (e) => {
     const s = store.state, r = canvas.getBoundingClientRect(), l = llLayout(r.width, r.height), x = e.clientX - r.left, y = e.clientY - r.top;

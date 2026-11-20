@@ -205,6 +205,8 @@ export function mountLearn({ root, side, mirrorBtn, store, player, onSelect, onP
     /** The cube is being turned over between steps (what is loaded is not a case). */
     get turning() { return turning; },
     get selection() { return { ...cur }; },
+    /** The selected case's name, for the saved picture's title. */
+    get caseName() { return resolved?.case.name || ""; },
     /** Another method: its first case. */
     setMethod(id) { if (id !== cur.method) go(firstSel(id), true); },
     /** The panel is on screen: play the selected case. */

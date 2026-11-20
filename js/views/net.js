@@ -100,17 +100,21 @@ export function paintNet(g, state, o = {}) {
   ctx.restore();
 }
 
+/** The tracked piece's path through the moves, or null. */
+const trailOf = (s) => {
+  if (s.track == null) return null;
+  const path = trail(s.trace.states, s.track);
+  return path.length > 1 ? { path, cur: s.trace.states.indexOf(s.state) } : null;
+};
+/** What the page draws for store state s (cursor: the keyboard's sticker, if the net has focus). */
+export const netProps = (s, cursor = null) => ({ look: look(s, s.state), letters: s.opts.letters, guide: guideOf(s), trail: asking(s) ? null : trailOf(s), cursor });
+
 const NET_LABEL = "Net of the cube, unfolded: U above F, with L, F, R, B in a row and D below. Arrow keys move between stickers; Enter follows the piece, or in Predict chooses the slot.";
 
 /** api: { answer(pos, el) } names a slot (Predict). */
 export function mountNet(el, store, api = {}) {
   let cursor = null, focused = false;
-  const trailOf = (s) => {
-    if (s.track == null) return null;
-    const path = trail(s.trace.states, s.track);
-    return path.length > 1 ? { path, cur: s.trace.states.indexOf(s.state) } : null;
-  };
-  const view = mountCanvas(el, store, (g, s) => paintNet(g, s.state, { look: look(s, s.state), letters: s.opts.letters, guide: guideOf(s), trail: asking(s) ? null : trailOf(s), cursor: focused ? cursor : null }), NET_LABEL);
+  const view = mountCanvas(el, store, (g, s) => paintNet(g, s.state, netProps(s, focused ? cursor : null)), NET_LABEL);
   const { canvas } = view;
   // a canvas with its own keys: tell assistive tech it isn't a picture
   canvas.setAttribute("role", "application");

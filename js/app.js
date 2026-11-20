@@ -6,7 +6,7 @@ import { h, storage } from "./ui.js";
 import { onThemeChange } from "./palette.js";
 import { HOLDINGS, ROLE_SETS } from "./lib/roles.js";
 import { trace } from "./lib/trace.js";
-import { parse, NotationError } from "./lib/notation.js";
+import { parse, format, NotationError } from "./lib/notation.js";
 import { DEFAULT_CAMERA } from "./lib/scene.js";
 import cube from "./views/cube.js";
 import net from "./views/net.js";
@@ -24,6 +24,7 @@ import { scramble, cryptoRandom } from "./lib/scramble.js";
 import { METHODS } from "./lib/content/index.js";
 import { validSel } from "./lib/lesson.js";
 import { TYPING_DEBOUNCE } from "./timing.js";
+import { createExporter } from "./export/dialog.js";
 
 const VIEWS = [cube, net, ll];
 const OPTIONS_KEY = "cubetrace.options", LAYOUT_KEY = "cubetrace.layout", SEEN_KEY = "cubetrace.primerSeen", SEL_KEY = "cubetrace.sel", VERSION = 1;
@@ -226,6 +227,10 @@ function updateLedger(s) {
   if (want) ledger.update(s.state, HOLDINGS[ROLE_SETS[s.opts.roleSet].holding]);
 }
 btnLedger.addEventListener("click", () => { btnLedger.setAttribute("aria-pressed", String(btnLedger.getAttribute("aria-pressed") !== "true")); updateLedger(state); });
+
+// ── Save image: the title block is the case and its algorithm, or the moves typed in Explore ──
+const exporter = createExporter({ store, title: () => ({ name: mode === "explore" ? "" : learn.caseName, alg: format(state.seq.moves) }) });
+document.getElementById("btnImage").addEventListener("click", () => exporter.open());
 
 // ── Predict: the questions, in the transport strip ──
 const pbar = document.getElementById("pbar"), pQuestion = document.getElementById("pQuestion");
