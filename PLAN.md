@@ -1,7 +1,8 @@
 # Cube Trace: plan
 
-Status: **approved** on 2026-11-19 ("go ahead with the plan"): the recommended
-option for every decision, D1 to D9. Building milestone by milestone.
+Status: **approved and built.** Approved on 2026-11-19 ("go ahead with the plan") with
+the recommended option for every decision, D1 to D9; all ten milestones are done.
+Section 14 lists what changed while building.
 
 The brief this answers is the one you gave on 2026-11-19 (sections 0 to 12 below are
 mine; "brief §n" points at yours).
@@ -607,3 +608,32 @@ called done.
   `public/design/` change.
 - **GitHub:** turn on Pages for `CubeTrace` (`main`, root) once the branch merges.
 - No other sibling repo is touched.
+
+## 14. What changed while building
+
+- **Milestones 7 and 8 shipped together** (one PR): the lessons UI is the same panel for
+  both methods. The content itself (every algorithm and its tests) landed earlier, as
+  soon as the engine could check it.
+- **Three F2L algorithms written from memory were wrong**: they duplicated other cases.
+  The coverage test named the three missing pair positions, and the standard algorithms
+  for those replaced them.
+- **Every beginner rule in the brief held**, with one correction to the wording: in
+  step 7, `R' D' R D` borrows the middle layer as well as the bottom, so the captions say
+  "the lower two layers".
+- **Two cases don't start from "the algorithm undone"**: a dot only reaches an L or a
+  line in one go, and one corner can't be twisted on its own. These cases name another
+  algorithm to start from (`from` in the content).
+- **The left/right mirror**, as first written here, said every direction reverses; `x`
+  and `M` in fact stay as they are (section 5 is corrected).
+- **Stickers are checked against the cube's body**, not against `--card` (D3): kept
+  stickers drain toward grey, then 8% toward the theme's sheet; ignored stickers use the
+  theme's `--ink-4` as it is. Both are tested in all 15 themes.
+- **The back mirror pane slides out to the right**: straight behind the cube it was
+  hidden by the cube from the usual camera.
+- **A Show chooser** (Explore) applies any step's roles and holding to free moves.
+- **Predict waits for "Next"** after each answer, so the right slot (solid) and a wrong
+  pick (dashed) can be read; turn arrows are hidden while a question is open.
+- **Save image** is PNG or GIF, as D7 recommended; the CSP didn't need `blob:` because
+  the preview is drawn on a canvas.
+- **Known limitation:** an automatic chunking reads `R U R' D R U' R' D'` as two inserts
+  rather than a commutator's halves; the commutator note still shows it as `[X, Y]`.
