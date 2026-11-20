@@ -253,6 +253,28 @@ code, pre { font-family: var(--font-mono); }
   .tl-dock > .tl { margin: 0 var(--gap) var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--r); background: var(--sheet); }
 }
 
+/* ── Explore's buttons, the twist ledger and Predict's bar (local) ── */
+.side .acts { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.ledger { display: grid; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-radius: var(--r); background: var(--sheet-2); }
+.ledger h3 { font: var(--fw-head) var(--fs-3)/1.3 var(--font-text); }
+/* a row's name is a th for assistive tech; it is laid out like the cells beside it, not like a column head */
+.ledger .sd-table :is(td, th[scope="row"]) { padding-block: var(--sp-1); border-bottom: 1px solid var(--row-line); }
+.ledger .sd-table th[scope="row"] { font-weight: var(--fw-ui); color: var(--ink); vertical-align: top; }
+.ledger .sd-table tfoot :is(th, td) { font-weight: var(--fw-strong); }
+.ledger .sd-table tfoot tr:first-child :is(th, td) { border-top: 1px solid var(--ink-3); }
+.ledger .sd-table [data-twist="0"] { color: var(--ink-3); }
+.ledger .sd-table td:not([data-twist="0"]) { font-weight: var(--fw-strong); color: var(--ink); }
+.tl-dock > .ledger { margin: 0 var(--gap) var(--sp-3); }
+
+.pbar { flex: 1 1 24rem; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
+.pq { flex: 1 1 14rem; min-width: 0; padding-left: var(--sp-2); border-left: 3px solid transparent; color: var(--ink); line-height: 1.35; }
+.pq[data-verdict="right"] { border-left-color: var(--ok); }
+.pq[data-verdict="wrong"] { border-left-color: var(--danger); }
+.pby { display: flex; align-items: center; gap: var(--sp-2); }
+.pstreak { font: var(--fw-strong) var(--fs-2) var(--font-mono); color: var(--ink-2); white-space: nowrap; }
+/* Predict decides when the cube turns, so the playback controls step aside */
+.app[data-mode="predict"] .strip > :is(.grp, .sd-range, #btnChunk) { display: none; }
+
 @media print {
   .bar, .side, .dk-acts, .strip { display: none; }
 }

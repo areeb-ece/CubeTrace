@@ -4,7 +4,10 @@
 // level with the turning slab.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildScene, pick } from "../js/lib/scene.js";
+import { buildScene, pick, dragMove } from "../js/lib/scene.js";
+import { stickers, NORMALS } from "../js/lib/cube.js";
+import { POS } from "../js/lib/rot.js";
+import { moveText } from "../js/lib/moves.js";
 import { solved, applyMoves } from "../js/lib/cube.js";
 import { parseMoves } from "../js/lib/notation.js";
 
@@ -144,3 +147,48 @@ test("ghost edges join the projected corners of the cubie's box", () => {
   const turned = ghostEdges(posIndex(c), { ...DEFAULT_CAMERA, yaw: DEFAULT_CAMERA.yaw + 1 });
   assert.notDeepEqual(turned[0].a, edges[0].a);
 });
+
+// ── dragging a sticker turns its layer ──
+const sticker = (s, face, row, col) => { const st = stickers(s).find((x) => x.face === face && x.row === row && x.col === col); return { id: st.id, face }; };
+const cams = [DEFAULT_CAMERA, { ...DEFAULT_CAMERA, yaw: -1.9, pitch: 0.5 }, { ...DEFAULT_CAMERA, yaw: 3.0, pitch: -0.6 }, { ...DEFAULT_CAMERA, yaw: 0.2, pitch: 1.2 }];
+
+test("dragging up the front face's top-right sticker is R; dragging it right is U'", () => {
+  const s = solved(), st = sticker(s, "F", 0, 2);
+  assert.equal(moveText(dragMove(s, st, [0, -30])), "R");
+  assert.equal(moveText(dragMove(s, st, [0, 30])), "R'");
+  assert.equal(moveText(dragMove(s, st, [30, 0])), "U'");
+  assert.equal(moveText(dragMove(s, st, [-30, 0])), "U");
+  assert.equal(dragMove(s, st, [0, 0]), null);
+});
+
+test("centre stickers turn slices", () => {
+  const s = solved();
+  assert.equal(moveText(dragMove(s, sticker(s, "F", 1, 1), [0, -30])), "M'");
+  assert.equal(moveText(dragMove(s, sticker(s, "F", 1, 1), [30, 0])), "E");
+  assert.equal(moveText(dragMove(s, sticker(s, "U", 1, 1), [30, 0])), "S");
+});
+
+test("from any camera, the drag's move carries the sticker the way the drag went", () => {
+  const s = solved();
+  for (const camera of cams) {
+    const cam = cameraBasis(camera);
+    for (const st of stickers(s)) {
+      if (dot(NORMALS[st.face], cam.eye) <= 0) continue; // not seen from here
+      const c = POS[s.pos[st.id]], n = NORMALS[st.face], p = c.map((v, i) => v + n[i] * 0.5), s0 = projectPoint(cam, p);
+      // every direction in the face, as it looks on screen
+      for (const along of inFace(n)) {
+        const s1 = projectPoint(cam, p.map((v, i) => v + along[i] * 0.5));
+        const drag = [s1[0] - s0[0], s1[1] - s0[1]];
+        if (Math.hypot(...drag) < 0.12) continue; // a face seen nearly edge-on
+        const m = dragMove(s, { id: st.id, face: st.face }, drag, camera);
+        assert.ok(m, `${st.face} ${st.row}${st.col}`);
+        // the turn takes the sticker's face normal to the way it was dragged
+        const to = rotateAbout(n, m.axis, moveAngle(m)).map((v) => Math.round(v) || 0);
+        assert.deepEqual(to, along, `${st.face} ${st.row}${st.col} from yaw ${camera.yaw}: ${moveText(m)}`);
+        assert.ok(m.layers.includes(c[m.axis]) && m.layers.length === 1, "the layer the sticker is in");
+      }
+    }
+  }
+});
+const dot = (a, b) => a.reduce((t, v, i) => t + v * b[i], 0);
+const inFace = (n) => [[1, 0, 0], [0, 1, 0], [0, 0, 1]].filter((e) => !dot(e, n)).flatMap((e) => [e, e.map((v) => 0 - v)]);

@@ -40,3 +40,14 @@ export function trail(states, id) {
   });
   return out;
 }
+
+const cellsAtMemo = new Map();
+/** The net cells of grid position p, { face, row, col } (a slot, whatever piece is in it). */
+export function cellsAtPos(p) {
+  if (!cellsAtMemo.has(p)) {
+    const out = [];
+    for (const face of "UDLRFB") for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) if (posIndex(gridOf(face, row, col)) === p) out.push({ face, row, col });
+    cellsAtMemo.set(p, out);
+  }
+  return cellsAtMemo.get(p);
+}

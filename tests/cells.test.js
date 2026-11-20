@@ -58,3 +58,10 @@ test("a trail has one entry per place, and none for moves that leave the piece a
   // each entry is where refCell says it is at that state
   for (const c of t) assert.deepEqual({ face: c.face, row: c.row, col: c.col }, refCell(states[c.i], dfr));
 });
+
+import { cellsAtPos } from "../js/lib/cells.js";
+test("a slot has a cell for each of its faces: 3 for a corner, 2 for an edge, 1 for a centre", () => {
+  const counts = [0, 1, 2, 3].map(() => 0);
+  for (let p = 0; p < 27; p++) counts[cellsAtPos(p).length]++;
+  assert.deepEqual(counts, [1, 6, 12, 8]);
+});

@@ -7,6 +7,7 @@
 // tests/scene.test.js checks the order against a per-pixel depth test.
 import { POS } from "./rot.js";
 import { IDS, NORMALS, stickerHome } from "./cube.js";
+import { moveFrom } from "./moves.js";
 
 const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 const HALF = 0.5;     // half a cubie
@@ -271,4 +272,32 @@ export function ghostEdges(pos, camera = DEFAULT_CAMERA) {
     }
   }
   return out;
+}
+
+/**
+ * The move a drag across a sticker asks for (the standard cube-simulator gesture).
+ * sticker: { id, face } (the piece and the world face the pointer pressed); drag: [dx, dy]
+ * on screen (y down). Of the two directions the face has, and their opposites, the one
+ * the drag follows most closely (as the camera projects them at that sticker) is where
+ * the sticker is to go; the layer that carries it there is the one it sits in, turned
+ * about the other in-face axis. A centre sticker gives a slice (M, E, S). Null for no drag.
+ */
+export function dragMove(state, sticker, drag, camera = DEFAULT_CAMERA) {
+  const [dx, dy] = drag;
+  if (!(Math.hypot(dx, dy) > 0)) return null;
+  const n = NORMALS[sticker.face], c = POS[state.pos[sticker.id]], cam = cameraBasis(camera);
+  const axes = faceAxes(n), p = add(c, scale(n, HALF)), s0 = projectPoint(cam, p);
+  let best = null;
+  axes.forEach((e, i) => {
+    for (const sg of [1, -1]) {
+      const s1 = projectPoint(cam, add(p, scale(e, sg * HALF))), vx = s1[0] - s0[0], vy = s1[1] - s0[1], len = Math.hypot(vx, vy);
+      if (len < 1e-9) continue; // a face seen edge-on has no such direction on screen
+      const score = (vx * dx + vy * dy) / len;
+      if (!best || score > best.score) best = { score, along: scale(e, sg), turn: axes[1 - i] };
+    }
+  });
+  if (!best) return null;
+  const axis = best.turn.findIndex((v) => v !== 0);
+  // a +90° turn about the axis sends the sticker along axis × position: forwards means +, else a quarter back
+  return moveFrom(axis, [c[axis]], dot(cross(best.turn, p), best.along) > 0 ? 1 : 3);
 }

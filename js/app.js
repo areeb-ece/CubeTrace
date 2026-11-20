@@ -18,6 +18,9 @@ import { mountKeys } from "./keys.js";
 import { mountTimeline } from "./views/timeline.js";
 import { mountPrimer } from "./primer.js";
 import { mountLearn } from "./learn.js";
+import { mountPredict } from "./predict.js";
+import { mountLedger } from "./ledger.js";
+import { scramble, cryptoRandom } from "./lib/scramble.js";
 import { METHODS } from "./lib/content/index.js";
 import { validSel } from "./lib/lesson.js";
 import { TYPING_DEBOUNCE } from "./timing.js";
@@ -42,6 +45,7 @@ let exploreRoleSet = opts.roleSet;
 const start = HOLDINGS[ROLE_SETS[opts.roleSet].holding];
 const store = createStore({
   moves: "", start, trace: trace(start, []), state: start, shown: { state: start, turn: null }, guide: null, busy: false,
+  mode: "learn", predict: null, // predict: the question being asked (js/predict.js)
   hover: null, track: null, meet: null, // meet: pieces both halves of a commutator move (or null)
   // a piece (cubie id) brushed by the pointer or keys, and one being followed
   play: { index: 0, t: 0, playing: false, speed: opts.speed }, seq: { n: 0, chunks: [] },
@@ -49,6 +53,9 @@ const store = createStore({
 });
 const { state } = store;
 const player = createPlayer(store);
+// What the visitor's own controls drive: in Predict the questions decide when the cube turns.
+const userPlayer = Object.create(player);
+for (const k of ["play", "toggle", "playChunk", "step", "seek", "prevStop", "nextStop"]) userPlayer[k] = (...a) => (state.mode === "predict" ? undefined : player[k](...a));
 const saveOptions = () => storage.set(OPTIONS_KEY, { v: VERSION, ...state.opts, roleSet: exploreRoleSet });
 
 // ── the workspace ──
@@ -59,8 +66,8 @@ const dock = createDock(host, {
   elFor(id) {
     if (!made[id]) {
       const el = h("div", { class: "view", "data-view": id });
-      made[id] = { el, view: VIEWS.find((v) => v.id === id).mount(el, store) };
-      if (id === "cube") mountKeys(el, { turn: turnByKey, player });
+      made[id] = { el, view: VIEWS.find((v) => v.id === id).mount(el, store, { turn: turnByKey, answer: (pos, from) => predict.answer(pos, from) }) };
+      if (id === "cube") mountKeys(el, { turn: turnByKey, player: userPlayer });
     }
     return made[id].el;
   },
@@ -101,7 +108,7 @@ function readMoves(then = "set") {
   }
 }
 box.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(readMoves, TYPING_DEBOUNCE); });
-// A key turn writes the move on the end of the box (on a new line after a comment, which would swallow it).
+// A key turn, or a drag across the cube, writes the move on the end of the box (on a new line after a comment, which would swallow it).
 function turnByKey(text) {
   if (mode !== "explore") return; // a lesson's moves aren't the visitor's to change
   clearTimeout(typing);
@@ -148,7 +155,7 @@ pop.addEventListener("toggle", (e) => {
 document.getElementById("btnReset").addEventListener("click", () => { storage.remove(LAYOUT_KEY); dock.set(DEFAULT_LAYOUT()); pop.hidePopover(); });
 
 // ── the transport strip, the keys and the two dialogs ──
-const transport = mountTransport(document.getElementById("strip"), store, player, {
+const transport = mountTransport(document.getElementById("strip"), store, userPlayer, {
   onSpeed(v) { player.setSpeed(v); store.set("opts", { ...state.opts, speed: v }); },
   onFull() { store.set("opts", { ...state.opts, full: !state.opts.full }); },
 });
@@ -167,13 +174,13 @@ for (const d of document.querySelectorAll("dialog.sd-dialog")) {
   d.addEventListener("click", (e) => { if (e.target === d) d.close(); });
 }
 transport.update(state);
-const timeline = mountTimeline(document.getElementById("timeline"), store, player);
+const timeline = mountTimeline(document.getElementById("timeline"), store, userPlayer);
 
 // ── Learn and Explore ──
 const sel0 = storage.get(SEL_KEY);
 const saved0 = sel0?.v === VERSION ? sel0 : null;
-let mode = saved0?.mode === "explore" ? "explore" : "learn";
-const sideEl = document.getElementById("side"), explorePanel = document.getElementById("explorePanel"), learnPanel = document.getElementById("learnPanel");
+let mode = ["explore", "predict"].includes(saved0?.mode) ? saved0.mode : "learn";
+const appEl = document.getElementById("app"), sideEl = document.getElementById("side"), explorePanel = document.getElementById("explorePanel"), learnPanel = document.getElementById("learnPanel");
 const modeSeg = document.getElementById("modeSeg"), methodBox = document.getElementById("methodBox"), methodSel = document.getElementById("method");
 const mirrorSeg = document.getElementById("mirrorSeg"), tlEl = document.getElementById("timeline"), tlDock = document.getElementById("tlDock");
 const saveSel = (sel) => storage.set(SEL_KEY, { v: VERSION, mode, ...sel });
@@ -198,29 +205,63 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sideEl.h
 
 // the timeline sits in the panel (under the moves, or in the case's detail); on a phone, under the cube
 function placeTimeline() {
-  const home = narrow.matches ? tlDock : mode === "learn" ? learn.timelineSlot : document.getElementById("tlExplore");
+  const home = narrow.matches ? tlDock : mode !== "explore" ? learn.timelineSlot : document.getElementById("tlExplore");
   if (tlEl.parentElement !== home) home.append(tlEl);
+  placeLedger();
 }
 const learn = mountLearn({
   root: learnPanel, side: sideEl, mirrorBtn: document.getElementById("btnMirror"), store, player, initial: saved0,
   onSelect(sel) { methodSel.value = sel.method; saveSel(sel); },
   onPick() { setDrawer(false); },
 });
+// ── the twist ledger: in the lesson for step 7, and on demand in Explore ──
+const ledger = mountLedger(), btnLedger = document.getElementById("btnLedger");
+function placeLedger() {
+  const home = narrow.matches ? tlDock : mode !== "explore" ? learnPanel : explorePanel;
+  if (ledger.el.parentElement !== home) { if (home === learnPanel) learn.detailEl.after(ledger.el); else home.append(ledger.el); }
+}
+function updateLedger(s) {
+  const sel = learn.selection, want = mode === "explore" ? btnLedger.getAttribute("aria-pressed") === "true" : sel.method === "beginner" && sel.step === "yellow-twist";
+  ledger.el.hidden = !want;
+  if (want) ledger.update(s.state, HOLDINGS[ROLE_SETS[s.opts.roleSet].holding]);
+}
+btnLedger.addEventListener("click", () => { btnLedger.setAttribute("aria-pressed", String(btnLedger.getAttribute("aria-pressed") !== "true")); updateLedger(state); });
+
+// ── Predict: the questions, in the transport strip ──
+const pbar = document.getElementById("pbar"), pQuestion = document.getElementById("pQuestion");
+const predict = mountPredict({
+  store, player, learn,
+  bar: {
+    el: pbar, prompt: pQuestion, next: document.getElementById("pNext"), streakEl: document.getElementById("pStreak"), bySeg: document.getElementById("pBy"),
+    verdict(right) { if (right == null) pQuestion.removeAttribute("data-verdict"); else pQuestion.dataset.verdict = right ? "right" : "wrong"; },
+  },
+});
+
+// ── Explore's own buttons ──
+document.getElementById("btnScramble").addEventListener("click", () => { clearTimeout(typing); box.value = scramble(cryptoRandom); readMoves(); });
+document.getElementById("btnClearMoves").addEventListener("click", () => { clearTimeout(typing); box.value = ""; readMoves(); });
+
+let learningOn = false; // is the lesson panel the one in use (Learn or Predict)?
 function setMode(next) {
+  const wasLearning = learningOn;
   mode = next;
+  store.set("mode", mode);
   clearTimeout(typing); // a half-typed box must not overwrite a lesson
-  const learning = mode === "learn";
+  const learning = mode !== "explore";
+  learningOn = learning;
   for (const b of modeSeg.querySelectorAll("button")) b.setAttribute("aria-checked", String(b.dataset.mode === mode));
   learnPanel.hidden = !learning;
   explorePanel.hidden = learning;
   methodBox.hidden = mirrorSeg.hidden = !learning;
-  sideEl.dataset.mode = mode;
+  appEl.dataset.mode = mode;
+  predict.setActive(mode === "predict");
+  sideEl.dataset.mode = learning ? "learn" : "explore";
   if (learning) { sideEl.removeAttribute("aria-labelledby"); sideEl.setAttribute("aria-label", "Lessons"); }
   else { sideEl.removeAttribute("aria-label"); sideEl.setAttribute("aria-labelledby", "movesTitle"); }
   placeTimeline();
   if (learning) {
     host.removeAttribute("data-stale");
-    learn.activate();
+    if (!wasLearning) learn.activate();
   } else {
     learn.deactivate();
     // back to the moves box, as the visitor left it
@@ -243,7 +284,8 @@ store.on((s, dirty) => {
   if (dirty.has("opts")) saveOptions();
   transport.update(s);
   timeline.update(s, dirty);
-  if (mode === "learn") learn.update(s);
+  if (mode !== "explore") { learn.update(s); predict.update(s); }
+  updateLedger(s);
   if (dirty.has("error") && mode === "explore") drawError(s.error);
   for (const id in made) if (dock.isShown(id)) made[id].view.update?.(s, dirty);
 });

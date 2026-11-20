@@ -201,6 +201,9 @@ export function mountLearn({ root, side, mirrorBtn, store, player, onSelect, onP
 
   return {
     timelineSlot: slot,
+    detailEl: detail,
+    /** The cube is being turned over between steps (what is loaded is not a case). */
+    get turning() { return turning; },
     get selection() { return { ...cur }; },
     /** Another method: its first case. */
     setMethod(id) { if (id !== cur.method) go(firstSel(id), true); },
