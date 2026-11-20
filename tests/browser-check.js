@@ -18,10 +18,20 @@ import { createRequire } from "node:module";
 import { serve, ROOT, BASE_PATH } from "./serve.js";
 import { netLayout, netCell } from "../js/lib/layout2d.js";
 import { STICKERS } from "../js/palette.js";
-import { solved, stickers, kindOf, applyMoves } from "../js/lib/cube.js";
+import { solved, stickers, kindOf, applyMoves, occupant } from "../js/lib/cube.js";
 import { parseMoves } from "../js/lib/notation.js";
 import { facesAt } from "../js/lib/pieces.js";
 import { METHODS } from "../js/lib/content/index.js";
+import { stickerAt, pieceAt } from "../js/views/cube.js";
+import { DEFAULT_CAMERA } from "../js/lib/scene.js";
+import { resolve } from "../js/lib/lesson.js";
+import { trace } from "../js/lib/trace.js";
+import { chunksFor } from "../js/lib/chunks.js";
+import { roles, HOLDINGS } from "../js/lib/roles.js";
+import { units, pickTarget } from "../js/lib/predict.js";
+import { twistLedger } from "../js/lib/ledger.js";
+import { cellsAtPos } from "../js/lib/cells.js";
+import { posIndex } from "../js/lib/rot.js";
 
 // Playwright from this folder's node_modules, or a machine-wide install.
 const { chromium } = await import("playwright").catch(() => createRequire(import.meta.url)("playwright"));
@@ -92,7 +102,9 @@ const painted = (page, sel) => page.$eval(sel, (cv) => {
 const picture = (page, sel) => page.$eval(sel, (cv) => cv.toDataURL());
 const typeMoves = async (page, text) => { await page.fill("#moves", text); await page.waitForTimeout(350); await frame(page); };
 const settle = async (page) => { await frame(page); await page.waitForFunction(() => !document.getElementById("strip").hasAttribute("data-busy"), null, { timeout: 8000 }); await frame(page); };
-const VIEW = '.view[data-view="cube"]';
+const VIEW = '.view[data-view="cube"]', SIDE = "#side";
+// wait until the lesson's own chips are up, after a turn-over (whose chips start with `first`)
+const untilChips2 = (page, first) => page.waitForFunction((t) => { const c = document.querySelector("#timeline .tl-chip"); return c && c.textContent !== t; }, first, { timeout: 8000 });
 const openViews = (page) => page.$$eval(".dk-stack", (els) => els.map((e) => e.dataset.view));
 
 let failed = false;
@@ -138,12 +150,13 @@ try {
     await typeMoves(page, "R");
     assert.equal(await picture(page, NET), afterR, "R draws the same net again");
 
-    // orbiting: dragging turns the cube, letting go springs it back
+    // orbiting: dragging off the cube turns the view, letting go springs it back
     const cubeBefore = await picture(page, CUBE);
     const box = await page.locator(CUBE).boundingBox();
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    // (from a corner of the panel: in Explore a press on the cube itself turns a layer)
+    await page.mouse.move(box.x + 12, box.y + 12);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 - 140, box.y + box.height / 2 + 60, { steps: 6 });
+    await page.mouse.move(box.x + 12 + 140, box.y + 12 + 60, { steps: 6 });
     await frame(page);
     assert.notEqual(await picture(page, CUBE), cubeBefore, "dragging turns the cube");
     await page.mouse.up();
@@ -731,6 +744,245 @@ try {
     assert.equal((await page.$$eval("#timeline .tl-chip", (c) => c.map((x) => x.textContent))).join(" "), "U R U' R' U' F' U F", "no turn to wait for");
     await assertSticker(page, "U", 1, 1, "D", "yellow is up at once");
     await clean("learn, motion off");
+    await page.context().close();
+  }
+
+  // ── Explore: dragging across the cube turns a layer; Scramble and Reset ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 });
+    const box = await page.locator(CUBE).boundingBox();
+    const view = [box.width, box.height], o = { camera: DEFAULT_CAMERA, mirrors: false };
+    // the middle of the sticker on face `face` of the piece at grid position `at`, found by scanning with the view's own hit test
+    const stickerPoint = (state, at, face) => {
+      const id = occupant(state)[posIndex(at)], pts = [];
+      for (let x = 0; x < view[0]; x += 3) for (let y = 0; y < view[1]; y += 3) {
+        const hit = stickerAt(state, o, ...view, x, y);
+        if (hit && hit.id === id && hit.face === face) pts.push([x, y]);
+      }
+      assert.ok(pts.length > 20, `${face} sticker of ${at} is on screen`);
+      return [box.x + pts.reduce((t, q) => t + q[0], 0) / pts.length, box.y + pts.reduce((t, q) => t + q[1], 0) / pts.length];
+    };
+    const drag = async ([x, y], [dx, dy]) => {
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + dx, y + dy, { steps: 6 });
+      await page.mouse.up();
+      await settle(page);
+    };
+    const front = stickerPoint(solved(), [1, 1, 1], "F"); // the front face's top-right sticker
+    await drag(front, [0, -50]);
+    assert.equal(await page.$eval("#moves", (t) => t.value), "R", "dragging it up turns the right face");
+    for (let row = 0; row < 3; row++) await assertSticker(page, "U", row, 2, "F", "after the dragged R");
+    // the cube turned, so its pieces are elsewhere: scan the state the page now shows
+    const afterR = applyMoves(solved(), parseMoves("R"));
+    await drag(stickerPoint(afterR, [-1, 1, 1], "F"), [50, 0]);
+    assert.equal(await page.$eval("#moves", (t) => t.value), "R U'", "dragging a top-row sticker right turns the top layer back");
+    // a drag that starts off the cube orbits it and writes nothing
+    const orbitFrom = await picture(page, CUBE);
+    await page.mouse.move(box.x + 6, box.y + box.height - 6);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 80, box.y + box.height - 40, { steps: 5 });
+    await frame(page);
+    assert.notEqual(await picture(page, CUBE), orbitFrom, "the view turns");
+    await page.mouse.up();
+    assert.equal(await page.$eval("#moves", (t) => t.value), "R U'", "…and no move is written");
+    // a centre sticker turns a slice
+    await typeMoves(page, "");
+    await drag(stickerPoint(solved(), [0, 0, 1], "F"), [0, -50]);
+    assert.equal(await page.$eval("#moves", (t) => t.value), "M'", "the front centre dragged up is a middle slice");
+
+    // Scramble: 20 turns in the box, and the cube shows where they end
+    await page.click("#btnScramble");
+    await settle(page);
+    const scrambled = await page.$eval("#moves", (t) => t.value.trim().split(/\s+/));
+    assert.equal(scrambled.length, 20);
+    assert.ok(scrambled.every((m) => /^[UDLRFB]['2]?$/.test(m)), scrambled.join(" "));
+    const want = applyMoves(solved(), parseMoves(scrambled.join(" ")));
+    await assertSticker(page, "F", 1, 1, "F", "centres stay home");
+    for (const st of stickers(want)) if (st.row !== 1 || st.col !== 1) { await assertSticker(page, st.face, st.row, st.col, st.home, "the scramble's end state"); }
+    // Reset: empty box, solved cube
+    await page.click("#btnClearMoves");
+    await settle(page);
+    assert.equal(await page.$eval("#moves", (t) => t.value), "");
+    await assertSolvedNet(page, "after Reset");
+
+    // the twist ledger on demand: four corners and two totals, from the engine's numbers
+    assert.ok(await page.isHidden("#ledger"));
+    await page.click("#btnLedger");
+    assert.equal(await page.getAttribute("#btnLedger", "aria-pressed"), "true");
+    assert.ok(await page.isVisible("#ledger"));
+    const cells = () => page.$$eval("#ledger tbody th, #ledger tbody td, #ledger tfoot th, #ledger tfoot td", (c) => c.map((x) => x.textContent));
+    const show = (n) => (n > 0 ? "+1" : n < 0 ? "\u22121" : "0");
+    const rows = (l) => [...l.corners.flatMap((c) => [c.name, show(c.twist)]), "Top corners: total", show(l.top), "Lower corners: total", show(l.lower)];
+    assert.deepEqual(await cells(), rows(twistLedger(solved(), HOLDINGS.whiteUp)));
+    await typeMoves(page, "R' D' R D");
+    await settle(page);
+    const twisted = twistLedger(applyMoves(solved(), parseMoves("R' D' R D")), HOLDINGS.whiteUp);
+    assert.deepEqual(await cells(), rows(twisted));
+    assert.ok(twisted.top !== 0 && twisted.lower === -twisted.top, "one trigger leaves a top corner twisted, and the lower ones paying for it");
+    assert.ok(await page.$eval("#ledger", (e) => e.getBoundingClientRect().width <= 320 + 1), "it fits the panel");
+    await page.click("#btnLedger");
+    assert.ok(await page.isHidden("#ledger"), "the toggle hides it again");
+    await shot(page, "explore-drag");
+    await clean("explore drag");
+    await page.context().close();
+  }
+
+  // ── Predict: a marked piece, a click on its slot, the answer ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 }, null, { learn: true });
+    await page.click('#learnPanel [data-step="second-layer"]');
+    await untilChips2(page, "z2");
+    await settle(page);
+    await page.click('#learnPanel .case[aria-label="Edge goes right"]');
+    await frame(page);
+    assert.ok(await page.isHidden("#pbar"), "the questions are Predict's alone");
+    assert.ok(await page.isHidden("#ledger"), "and the ledger is for step 7");
+    await page.click('#modeSeg [data-mode="predict"]');
+    await frame(page);
+    assert.equal(await page.getAttribute('#modeSeg [data-mode="predict"]', "aria-checked"), "true");
+    assert.ok(await page.isVisible("#pbar"));
+    assert.ok(await page.isHidden("#btnPlay"), "Predict decides when the cube turns");
+    assert.equal(await page.textContent("#pStreak"), "Streak: 0");
+
+    const r = resolve({ method: "beginner", step: "second-layer", case: "sl-right" }), tr = trace(r.start, r.moves), roleOf = roles(r.roles);
+    const chunks = chunksFor(r.moves, r.parts);
+    const NETBOX = async () => page.locator(NET).boundingBox();
+    // the page's own view of the net and cube, for finding where to click
+    const clickNet = async (pos) => {
+      const size = await page.$eval(NET, (c) => [c.clientWidth, c.clientHeight]), b = await NETBOX();
+      const cell = netCell(netLayout(...size), ...Object.values(cellsAtPos(pos)[0]).slice(0, 3));
+      await page.mouse.click(b.x + cell.x + cell.size / 2, b.y + cell.y + cell.size / 2);
+    };
+    const clickCube = async (state, pos) => {
+      const id = occupant(state)[pos], b = await page.locator(CUBE).boundingBox(), found = [];
+      for (let x = 0; x < b.width; x += 3) for (let y = 0; y < b.height; y += 3) if (pieceAt(state, { camera: DEFAULT_CAMERA, mirrors: true }, b.width, b.height, x, y) === id) found.push([x, y]);
+      assert.ok(found.length > 20, "the slot's piece shows on the cube");
+      // the middle of the piece's visible area
+      const mid = found[Math.floor(found.length / 2)];
+      await page.mouse.click(b.x + mid[0], b.y + mid[1]);
+    };
+    const said = (re) => page.waitForFunction((src) => new RegExp(src).test(document.querySelector(".live").textContent), re.source, { timeout: 6000 });
+    const next = async () => { await page.click("#pNext"); await frame(page); };
+    const targetAttr = (sel) => page.getAttribute(sel, "data-target");
+
+    // 1: by move, answered on the net, right
+    const [f0, t0] = units(chunks, r.moves.length, "move")[0];
+    const target0 = pickTarget(tr.states[f0], tr.states[t0], roleOf, 0);
+    assert.equal(await targetAttr(NET), String(target0), "the marked piece is the one the engine picks");
+    assert.equal(await targetAttr(CUBE), String(target0));
+    assert.match(await page.textContent("#pQuestion"), /^Where will the .+ go\?/);
+    assert.ok(await page.isDisabled("#pNext"), "Next waits for an answer");
+    await shot(page, "predict-ask");
+    await clickNet(tr.states[t0].pos[target0]);
+    await said(/^Right: /);
+    assert.equal(await page.textContent("#pStreak"), "Streak: 1");
+    assert.equal(await page.getAttribute("#pQuestion", "data-verdict"), "right");
+    assert.equal(await page.getAttribute("#pbar", "data-phase"), "shown");
+    assert.ok(await page.isEnabled("#pNext"));
+    await next();
+
+    // 2: answered on the cube, where the learner clicks the place the piece is in now (before the move)
+    const [f1, t1] = units(chunks, r.moves.length, "move")[1];
+    const target1 = pickTarget(tr.states[f1], tr.states[t1], roleOf, 1);
+    assert.equal(await targetAttr(NET), String(target1));
+    await clickCube(tr.states[f1], tr.states[t1].pos[target1]);
+    await said(/^Right: /);
+    assert.equal(await page.textContent("#pStreak"), "Streak: 2");
+    await next();
+
+    // 3: a wrong click, on the net: the answer is said, the streak ends
+    const [f2, t2] = units(chunks, r.moves.length, "move")[2];
+    const target2 = pickTarget(tr.states[f2], tr.states[t2], roleOf, 2);
+    const answer2 = tr.states[t2].pos[target2], wrong = posIndex(answer2 === posIndex([0, 0, 1]) ? [0, 0, -1] : [0, 0, 1]);
+    await clickNet(wrong);
+    await said(/^Not quite: the .+ went to [a-z-]+\.$/);
+    assert.equal(await page.textContent("#pStreak"), "Streak: 0");
+    assert.equal(await page.getAttribute("#pQuestion", "data-verdict"), "wrong");
+    await frame(page);
+    await shot(page, "predict-wrong");
+    await next();
+
+    // the keyboard: the net's cursor and Enter name a slot
+    await page.focus(NET);
+    await page.keyboard.press("Enter");
+    await said(/^(Right|Not quite): /);
+    assert.equal(await page.getAttribute("#pbar", "data-phase"), "shown");
+    await next();
+
+    // by chunk: one question for each chunk of the algorithm
+    await page.click('#pBy [data-by="chunk"]');
+    await frame(page);
+    assert.equal(await page.getAttribute('#pBy [data-by="chunk"]', "aria-checked"), "true");
+    const [fc, tc] = units(chunks, r.moves.length, "chunk")[0];
+    assert.deepEqual([fc, tc], [0, 4]);
+    const targetC = pickTarget(tr.states[fc], tr.states[tc], roleOf, 0);
+    assert.equal(await targetAttr(NET), String(targetC));
+    await clickNet(tr.states[tc].pos[targetC]);
+    await said(/^Right: /);
+    await page.waitForFunction(() => document.getElementById("pbar").dataset.phase === "shown");
+    assert.equal(await page.$eval("#timeRange", (r) => r.value), "4", "the whole chunk was played");
+    await next();
+    // …and the last one ends the case
+    const [fl, tl] = units(chunks, r.moves.length, "chunk")[1];
+    const targetL = pickTarget(tr.states[fl], tr.states[tl], roleOf, 1);
+    await clickNet(tr.states[tl].pos[targetL]);
+    await said(/^Right: /);
+    await next();
+    assert.match(await page.textContent("#pQuestion"), /whole case/);
+    assert.equal(await page.textContent("#pNext"), "Again");
+    assert.equal(await targetAttr(NET), "");
+    assert.equal(await page.getAttribute(SIDE, "data-goal"), "met", "the case played through to its goal");
+    // choosing another case starts the questions again, and the streak carries on
+    await page.click('#learnPanel .case[aria-label="Edge goes left"]');
+    await frame(page);
+    await frame(page);
+    assert.notEqual(await targetAttr(NET), "", "a new case, a new question");
+    assert.equal(await page.textContent("#pStreak"), "Streak: 2");
+    await clean("predict");
+
+    // the streak is memory only: nothing about Predict is stored
+    const stored = await page.evaluate(() => Object.keys(localStorage).map((k) => localStorage.getItem(k)).join(" "));
+    assert.ok(!/streak/i.test(stored));
+
+    // Learn again: the questions go, the playback controls come back
+    await page.click('#modeSeg [data-mode="learn"]');
+    await frame(page);
+    assert.ok(await page.isHidden("#pbar"));
+    assert.ok(await page.isVisible("#btnPlay"));
+    assert.equal(await targetAttr(NET), "");
+    await page.context().close();
+  }
+
+  // ── the twist ledger: step 7, in Learn and in Predict ──
+  {
+    const { page, clean } = await open({ width: 1440, height: 900 }, null, { learn: true });
+    await page.click('#learnPanel [data-step="yellow-twist"]');
+    await page.waitForFunction(() => document.querySelectorAll("#timeline .tl-chip").length === 8 && !document.getElementById("strip").hasAttribute("data-busy"), null, { timeout: 8000 });
+    await frame(page);
+    assert.ok(await page.isVisible("#ledger"), "the ledger is on step 7");
+    const r = resolve({ method: "beginner", step: "yellow-twist", case: "yt-right" }), tr = trace(r.start, r.moves);
+    const cells = () => page.$$eval("#ledger tbody td, #ledger tfoot td", (c) => c.map((x) => x.textContent));
+    const show = (n) => (n > 0 ? "+1" : n < 0 ? "\u22121" : "0");
+    const expect = (i) => { const l = twistLedger(tr.states[i], HOLDINGS.yellowUp); return [...l.corners.map((c) => show(c.twist)), show(l.top), show(l.lower)]; };
+    assert.deepEqual(await cells(), expect(0));
+    assert.ok((await cells()).slice(0, 4).some((v) => v !== "0"), "a corner starts twisted");
+    const scrubTo2 = async (v) => { await page.evaluate((v) => { const el = document.getElementById("timeRange"); el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); }, v); await frame(page); await frame(page); };
+    await scrubTo2(r.moves.length);
+    assert.deepEqual(await cells(), expect(r.moves.length), "the ledger follows the playback");
+    assert.notDeepEqual(await cells(), expect(0), "…and what it says changes");
+    assert.ok((await cells()).slice(4).some((v) => v !== "0"), "mid-way the lower corners hold what the top gave up");
+    assert.match(await page.textContent("#ledger .sd-hint"), /0 mod 3/);
+    const mono = await page.$eval("#ledger tbody td", (e) => getComputedStyle(e).fontFamily);
+    assert.match(mono, /mononoki/, "the figures are in mononoki");
+    await shot(page, "ledger-step7");
+    await page.click('#modeSeg [data-mode="predict"]');
+    await frame(page);
+    assert.ok(await page.isVisible("#ledger"), "and in Predict");
+    await page.click('#learnPanel [data-step="yellow-cross"]');
+    await frame(page);
+    assert.ok(await page.isHidden("#ledger"), "no other step has it");
+    await clean("ledger");
     await page.context().close();
   }
 

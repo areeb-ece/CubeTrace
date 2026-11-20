@@ -73,3 +73,42 @@ export function dashed(ctx, pal, trace) {
   }
   ctx.restore();
 }
+
+/**
+ * A short mark (the "?" on the piece being predicted) centred at (cx, cy), haloed so it
+ * reads on any sticker. size is the glyph's height in px; ink its colour.
+ */
+export function glyph(ctx, pal, text, cx, cy, size, ink) {
+  ctx.save();
+  ctx.font = `700 ${size}px ${pal.mono}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = pal.alpha("bg", 0.7);
+  ctx.lineWidth = Math.max(2, size * 0.2);
+  ctx.strokeText(text, cx, cy);
+  ctx.fillStyle = ink;
+  ctx.fillText(text, cx, cy);
+  ctx.restore();
+}
+
+/**
+ * A prediction's slot outline: the right slot is a solid line, the learner's wrong choice a
+ * dashed one (the dash is the cue that tells them apart; both are ink, haloed, so neither
+ * is mistaken for a piece's accent outline). `trace` builds the path.
+ */
+export function slotLine(ctx, pal, kind, trace) {
+  const answer = kind === "answer";
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  for (const [color, width, pattern] of [[pal.alpha("bg", 0.85), answer ? 7 : 6, []], [pal.ink, answer ? 3.5 : 2.5, answer ? [] : [6, 4]]]) {
+    ctx.beginPath();
+    trace();
+    ctx.setLineDash(pattern);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.stroke();
+  }
+  ctx.restore();
+}

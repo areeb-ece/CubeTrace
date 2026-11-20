@@ -55,6 +55,7 @@ export function createPlayer(store) {
   }
   // The move, then what it did to the pieces that matter (index i of the trace's steps; back: undone)
   const say = (m, i, back) => {
+    if (store.state.mode === "predict") return; // the answer's sentence is the one to hear
     const changes = (tr.steps[i] || []).map((c) => (back ? { ...c, from: c.to, to: c.from } : c));
     announce(describeMove(m) + describeMoved(changes, roles(store.state.opts.roleSet)));
   };

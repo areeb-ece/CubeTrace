@@ -1,13 +1,13 @@
 // The cube in 3D: Canvas 2D, painted from lib/scene.js's polygons (PLAN.md D2).
 // paintCube draws and nothing else; mountCube adds the canvas, dragging to orbit and the
 // spring back.
-import { buildScene, cameraBasis, turnGuides, hull, pick, ghostEdges, DEFAULT_CAMERA } from "../lib/scene.js";
+import { buildScene, cameraBasis, turnGuides, hull, pick, ghostEdges, dragMove, DEFAULT_CAMERA } from "../lib/scene.js";
 import { move, moveText } from "../lib/moves.js";
-import { BODY, STICKERS, LETTERS } from "../palette.js";
+import { BODY, STICKERS, LETTERS, inkOn } from "../palette.js";
 import { tokenMs } from "../timing.js";
 import { mountCanvas } from "./canvas.js";
-import { hatch, dashed } from "./draw.js";
-import { look, stickerFill, letterInk, outlines } from "./stickers.js";
+import { hatch, dashed, glyph, slotLine } from "./draw.js";
+import { look, stickerFill, letterInk, outlines, guideOf } from "./stickers.js";
 
 const MARGIN = 0.92; // how much of the panel the cube and its panes may fill
 
@@ -85,6 +85,13 @@ export function pieceAt(state, o, w, h, x, y) {
   return pick(polys, (x - w / 2) / k, (y - h / 2) / k, ["sticker", "body", "mirror", "mirror-body"])?.id ?? null;
 }
 
+/** The sticker (or the plastic by it) under pixel (x, y) of the cube itself: { id, face }, or null. */
+export function stickerAt(state, o, w, h, x, y) {
+  const { k } = fit(w, h, false), polys = buildScene(state, { camera: o.camera || DEFAULT_CAMERA, turn: o.turn, mirrors: false });
+  const hit = pick(polys, (x - w / 2) / k, (y - h / 2) / k, ["sticker", "body"]);
+  return hit ? { id: hit.id, face: hit.face } : null;
+}
+
 /**
  * g = { ctx, w, h, pal }, o = { camera, mirrors, letters, turn, guide, look }.
  * look: stickers.js's look(): roles, hatching, ghosts and outlines. Without it every sticker is in full colour.
@@ -115,6 +122,11 @@ export function paintCube(g, state, o = {}) {
     ctx.font = `700 ${side * 0.55}px ${pal.mono}`;
     ctx.fillText(LETTERS[p.home], cx, cy);
   };
+  // the "?" on the piece being predicted
+  const markPiece = (p, fill) => {
+    const q = p.pts.map(at), side = Math.sqrt(Math.abs((q[1][0] - q[0][0]) * (q[3][1] - q[0][1]) - (q[1][1] - q[0][1]) * (q[3][0] - q[0][0])));
+    if (side >= 10) glyph(ctx, pal, "?", (q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2, side * 0.62, inkOn(fill));
+  };
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const p of polys) {
@@ -138,7 +150,8 @@ export function paintCube(g, state, o = {}) {
       ctx.fillStyle = st.fill;
       ctx.fill();
       const ink = o.letters ? letterInk(st) : null;
-      if (ink) fillLetter(p, ink);
+      if (lk?.mark?.glyph && p.id === lk.mark.target && !mirror) markPiece(p, st.fill);
+      else if (ink) fillLetter(p, ink);
       if (lk?.away.has(p.id)) {
         const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
         hatch(ctx, pal, () => path(ctx, pts), [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
@@ -163,6 +176,10 @@ export function paintCube(g, state, o = {}) {
       for (const pts of bodies.get(id) || []) { path(ctx, pts); ctx.stroke(); }
     }
     ctx.setLineDash([]);
+    // a prediction's answer: the slot's visible edges, solid for the right one, dashed for a wrong choice
+    for (const sl of lk.slots) {
+      slotLine(ctx, pal, sl.kind, () => { for (const e of ghostEdges(sl.pos, camera)) if (e.visible) { const [a, b] = [at(e.a), at(e.b)]; ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); } });
+    }
   }
   if (o.guide) drawGuides(ctx, pal, turnGuides(state, o.guide.move, o.guide.t, camera), at, o.guide.faint);
   ctx.restore();
@@ -179,9 +196,11 @@ export function describeView(camera) {
 
 const PITCH_MAX = (80 * Math.PI) / 180;
 const SPEED = 0.008; // radians of turn per pixel dragged
+const DRAG_MIN = 10; // px a press on a sticker must travel before it counts as a turn
 
-export function mountCube(el, store) {
-  const view = mountCanvas(el, store, (g, s) => paintCube(g, s.shown.state, { camera: s.camera, mirrors: s.opts.mirrors, letters: s.opts.letters, turn: s.shown.turn, guide: s.guide, look: look(s, s.shown.state) }), describeView(store.state.camera));
+/** api: { turn(text) } writes a move (Explore's drags), { answer(pos) } names a slot (Predict's clicks). */
+export function mountCube(el, store, api = {}) {
+  const view = mountCanvas(el, store, (g, s) => paintCube(g, s.shown.state, { camera: s.camera, mirrors: s.opts.mirrors, letters: s.opts.letters, turn: s.shown.turn, guide: guideOf(s), look: look(s, s.shown.state) }), describeView(store.state.camera));
   const { canvas } = view;
   canvas.style.setProperty("touch-action", "none");
   canvas.style.setProperty("cursor", "grab");
@@ -226,7 +245,11 @@ export function mountCube(el, store) {
     const moved = Math.hypot(e.clientX - press[0], e.clientY - press[1]);
     press = null;
     const id = moved < 4 ? under(e) : null;
-    if (id != null) store.set("track", store.state.track === id ? null : id);
+    if (id == null) return;
+    const s = store.state;
+    // Predict: a click names a place (where that piece is now), not a piece to follow
+    if (s.mode === "predict" && s.predict?.phase === "ask") api.answer?.(s.shown.state.pos[id]);
+    else store.set("track", s.track === id ? null : id);
   });
 
   canvas.addEventListener("pointerdown", (e) => {
@@ -236,7 +259,21 @@ export function mountCube(el, store) {
     canvas.setPointerCapture(e.pointerId);
     canvas.style.setProperty("cursor", "grabbing");
     let x = e.clientX, y = e.clientY;
+    // Explore: a press on the cube itself turns a layer when dragged; off the cube it still orbits
+    let grab = null;
+    if (store.state.mode === "explore") {
+      const r = canvas.getBoundingClientRect(), s = store.state;
+      grab = stickerAt(s.shown.state, { camera: s.camera, turn: s.shown.turn }, r.width, r.height, e.clientX - r.left, e.clientY - r.top);
+    }
+    const from = press;
     const move = (ev) => {
+      if (grab) {
+        if (grab.done || Math.hypot(ev.clientX - from[0], ev.clientY - from[1]) < DRAG_MIN) return;
+        grab.done = true;
+        const s = store.state, m = dragMove(s.shown.state, grab, [ev.clientX - from[0], ev.clientY - from[1]], s.camera);
+        if (m) api.turn?.(moveText(m));
+        return;
+      }
       const c = store.state.camera;
       store.set("camera", { ...c, yaw: c.yaw - (ev.clientX - x) * SPEED, pitch: Math.max(-PITCH_MAX, Math.min(PITCH_MAX, c.pitch + (ev.clientY - y) * SPEED)) });
       x = ev.clientX; y = ev.clientY;
@@ -258,6 +295,7 @@ export function mountCube(el, store) {
       canvas.dataset.guide = s.guide ? moveText(s.guide.move) : "";
       canvas.dataset.holes = String(look(s, s.shown.state).holes.length);
       canvas.dataset.track = s.track ?? "";
+      canvas.dataset.target = s.mode === "predict" ? s.predict?.target ?? "" : ""; // the piece Predict is asking about
       canvas.toggleAttribute("data-faint", !!s.guide?.faint);
       view.draw();
     },

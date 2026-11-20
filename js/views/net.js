@@ -1,13 +1,14 @@
 // The cube flattened into its cross net: every sticker at once, nothing hidden.
 // paintNet draws and nothing else.
-import { stickers } from "../lib/cube.js";
+import { stickers, gridOf } from "../lib/cube.js";
 import { rimMap, cycles } from "../lib/anatomy.js";
 import { moveText } from "../lib/moves.js";
 import { netLayout, netCell, netCells, cellAt, stepCell } from "../lib/layout2d.js";
+import { posIndex } from "../lib/rot.js";
 import { BODY } from "../palette.js";
 import { mountCanvas } from "./canvas.js";
 import { arrow } from "./draw.js";
-import { look, paintStickers } from "./stickers.js";
+import { look, paintStickers, asking, guideOf } from "./stickers.js";
 import { trail, idAt } from "../lib/cells.js";
 
 const round = (ctx, x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
@@ -99,16 +100,17 @@ export function paintNet(g, state, o = {}) {
   ctx.restore();
 }
 
-const NET_LABEL = "Net of the cube, unfolded: U above F, with L, F, R, B in a row and D below. Arrow keys move between stickers; Enter follows the piece.";
+const NET_LABEL = "Net of the cube, unfolded: U above F, with L, F, R, B in a row and D below. Arrow keys move between stickers; Enter follows the piece, or in Predict chooses the slot.";
 
-export function mountNet(el, store) {
+/** api: { answer(pos, el) } names a slot (Predict). */
+export function mountNet(el, store, api = {}) {
   let cursor = null, focused = false;
   const trailOf = (s) => {
     if (s.track == null) return null;
     const path = trail(s.trace.states, s.track);
     return path.length > 1 ? { path, cur: s.trace.states.indexOf(s.state) } : null;
   };
-  const view = mountCanvas(el, store, (g, s) => paintNet(g, s.state, { look: look(s, s.state), letters: s.opts.letters, guide: s.guide, trail: trailOf(s), cursor: focused ? cursor : null }), NET_LABEL);
+  const view = mountCanvas(el, store, (g, s) => paintNet(g, s.state, { look: look(s, s.state), letters: s.opts.letters, guide: guideOf(s), trail: asking(s) ? null : trailOf(s), cursor: focused ? cursor : null }), NET_LABEL);
   const { canvas } = view;
   // a canvas with its own keys: tell assistive tech it isn't a picture
   canvas.setAttribute("role", "application");
@@ -117,11 +119,17 @@ export function mountNet(el, store) {
   const idUnder = (c) => (c ? idAt(store.state.state, c.face, c.row, c.col) : null);
   const brush = (id) => { if (store.state.hover !== id) store.set("hover", id); };
   const toggle = (id) => { if (id != null) store.set("track", store.state.track === id ? null : id); };
+  // Predict: a click or Enter names the slot under it; otherwise it follows the piece
+  const choose = (c) => {
+    const s = store.state;
+    if (s.mode === "predict" && s.predict?.phase === "ask") api.answer?.(posIndex(gridOf(c.face, c.row, c.col)), canvas);
+    else toggle(idUnder(c));
+  };
   const pointAt = (e) => { const r = canvas.getBoundingClientRect(); return cellAt(cells(), e.clientX - r.left, e.clientY - r.top); };
   canvas.style.setProperty("cursor", "pointer");
   canvas.addEventListener("pointermove", (e) => brush(idUnder(pointAt(e))));
   canvas.addEventListener("pointerleave", () => { if (!focused) brush(null); });
-  canvas.addEventListener("click", (e) => { const c = pointAt(e); if (c) { cursor = { face: c.face, row: c.row, col: c.col }; toggle(idUnder(c)); } });
+  canvas.addEventListener("click", (e) => { const c = pointAt(e); if (c) { cursor = { face: c.face, row: c.row, col: c.col }; choose(c); } });
   canvas.addEventListener("focus", () => {
     focused = true;
     cursor ||= { face: "F", row: 1, col: 1 };
@@ -138,7 +146,7 @@ export function mountNet(el, store) {
       cursor = { face: to.face, row: to.row, col: to.col };
       brush(idUnder(to));
       view.draw();
-    } else if (e.key === "Enter" || e.key === " ") toggle(idAt(store.state.state, cursor.face, cursor.row, cursor.col));
+    } else if (e.key === "Enter" || e.key === " ") choose(cursor);
     else return;
     e.preventDefault();
   });
@@ -148,6 +156,7 @@ export function mountNet(el, store) {
       if (focused) brush(idAt(s.state, cursor.face, cursor.row, cursor.col));
       canvas.dataset.holes = String(look(s, s.state).holes.length);
       canvas.dataset.track = s.track ?? "";
+      canvas.dataset.target = s.mode === "predict" ? s.predict?.target ?? "" : "";
       view.draw();
     },
   };
